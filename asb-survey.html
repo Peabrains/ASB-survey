@@ -347,7 +347,8 @@ function calcSysTransport(ss){
   if(ss.type==='Open Floor / Pallet Stack'&&ss.areaM2&&ss.stackH){
     const occ=+ss.occ/100||0;
     if(occ<=0) return null;// no occupancy set — skip
-    const occM3=(+ss.areaM2)*(+ss.stackH)*occ;
+    const fill=+ss.fill||0.5;
+    const occM3=(+ss.areaM2)*(+ss.stackH)*occ*fill;
     if(!occM3) return null;
     const mats=ss.matTypes||[];
     if(!mats.length) return null;
