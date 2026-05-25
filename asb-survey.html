@@ -196,6 +196,12 @@ hr{border:none;border-top:1px solid var(--br);margin:14px 0}
 .meta{font-size:13px;color:var(--tx2)}
 .h2{font-size:16px;font-weight:700;color:var(--tx)}
 .h3{font-size:14px;font-weight:600;color:var(--tx)}
+/* Transport SVG icons */
+.ticon{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle}
+.ticon-ctr{color:var(--bl)}
+.ticon-trlr{color:var(--ac2)}
+.ticon-lift{color:var(--rd2)}
+.ticon-haz{color:var(--yw2)}
 /* Capture preview */
 .cap-prev{width:100%;border-radius:var(--r);margin-bottom:10px;max-height:220px;object-fit:cover;display:none;cursor:zoom-in}
 .cap-prev.show{display:block}
@@ -488,6 +494,15 @@ function uid(){
 }
 function fM(v){if(!v&&v!==0)return'—';return'MYR '+Number(v).toLocaleString(undefined,{maximumFractionDigits:0});}
 function fN(v){if(v===null||v===undefined||v==='')return'—';return Number(v).toLocaleString();}
+function tIcon(type,size=20){
+  const icons={
+    container:'<svg viewBox="0 0 28 20" width="'+size+'" height="'+(size*20/28).toFixed(0)+'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="1" y="1" width="26" height="18" rx="1.5"/><line x1="1" y1="7" x2="27" y2="7"/><line x1="1" y1="13" x2="27" y2="13"/><line x1="9" y1="1" x2="9" y2="19"/><line x1="19" y1="1" x2="19" y2="19"/></svg>',
+    trailer:'<svg viewBox="0 0 40 20" width="'+size+'" height="'+(size*20/40).toFixed(0)+'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="5" width="8" height="8" rx="1.5"/><line x1="1" y1="8" x2="9" y2="8"/><line x1="5" y1="5" x2="5" y2="8"/><line x1="9" y1="13" x2="39" y2="13"/><line x1="9" y1="13" x2="9" y2="11"/><circle cx="6" cy="16" r="2.5"/><circle cx="28" cy="16" r="2.5"/><circle cx="34" cy="16" r="2.5"/></svg>',
+    crane:'<svg viewBox="0 0 24 24" width="'+size+'" height="'+size+'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="22" x2="5" y2="3"/><line x1="5" y1="3" x2="19" y2="3"/><line x1="19" y1="3" x2="19" y2="9"/><line x1="19" y1="13" x2="19" y2="15"/><path d="M17 15l2 2 2-2"/><rect x="16" y="17" width="6" height="4" rx="0.5"/><line x1="5" y1="10" x2="12" y2="10"/></svg>',
+    hazmat:'<svg viewBox="0 0 24 24" width="'+size+'" height="'+size+'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3L2 21h20L12 3z"/><line x1="12" y1="10" x2="12" y2="15"/><circle cx="12" cy="18" r="0.8" fill="currentColor"/></svg>',
+  };
+  return icons[type]||'';
+}
 function showToast(msg,dur=1600){const t=document.getElementById('toast');t.textContent=msg;
   t.classList.add('show');clearTimeout(window._tt);window._tt=setTimeout(()=>t.classList.remove('show'),dur);}
 function totalSlots(ss){return(+ss.units||0)*(+ss.levels||1)*(+ss.spu||0);}
@@ -1773,104 +1788,131 @@ function delT(id){if(!confirm('Delete this task?'))return;state.tasks=state.task
 // ═══ SUMMARY ══════════════════════════════════════════════════════
 function rSummary(){
   const done=SLOC_DEF.filter(d=>slocComp(d.id)===100).length;
-  const totM2=SLOC_DEF.reduce((a,d)=>a+(+(state.slocs[d.id]?.footprintM2||0)),0);
   const allSys=SLOC_DEF.flatMap(d=>state.slocs[d.id]?.storageSystems||[]);
-  const totSlots2=allSys.reduce((a,ss)=>a+totalSlots(ss),0);
   const totCap=allSys.reduce((a,ss)=>{
     if(ss.type==='Open Floor / Pallet Stack') return a+(+ss.areaM2||0)*(+ss.stackH||0);
     const m3=slotM3(ss);const ts=totalSlots(ss);return a+(m3&&ts?m3*ts:0);
   },0);
   const totVal=SLOC_DEF.reduce((a,d)=>a+(d.stock?.v||0),0);
+  const verifiedCnt=SLOC_DEF.filter(d=>slocFieldVerified(d.id)).length;
+
+  // ── Per-SLOC capacity data ────────────────────────────────────
+  const slocRows=SLOC_DEF.map(d=>{
+    const s=state.slocs[d.id]||{};
+    const sys=s.storageSystems||[];
+    const fp=+(s.footprintM2||d.m2||0);
+    const floorOcc=+(s.floorOcc||0);
+    const floorUtil=floorOcc;// same as slider %
+    const capM3=sys.reduce((a,ss)=>{
+      if(ss.type==='Open Floor / Pallet Stack') return a+(+ss.areaM2||0)*(+ss.stackH||0);
+      const m3=slotM3(ss);const ts=totalSlots(ss);return a+(m3&&ts?m3*ts:0);
+    },0);
+    const occM3=sys.reduce((a,ss)=>{
+      if(ss.type==='Open Floor / Pallet Stack')
+        return a+(+ss.areaM2||0)*(+ss.stackH||0)*(+ss.occ/100||0)*(+ss.fill||0.5);
+      const m3=slotM3(ss);const ts=totalSlots(ss);
+      return a+(m3&&ts?m3*ts*(+ss.occ/100||0)*(+ss.fill||0.5):0);
+    },0);
+    const binUtil=capM3>0?Math.min(100,Math.round((occM3/capM3)*100)):0;
+    const cp=slocComp(d.id);
+    return {id:d.id,code:s.code||d.code,desc:s.desc||d.desc,
+      fp,floorUtil,capM3,occM3,binUtil,cp,hasData:fp>0||capM3>0};
+  }).filter(r=>r.hasData);
+
+  // Totals
+  const totFP=slocRows.reduce((a,r)=>a+r.fp,0);
+  const totFloorUsed=SLOC_DEF.reduce((a,d)=>{
+    const s=state.slocs[d.id];const fp=+(s?.footprintM2||d.m2||0);
+    return a+fp*(+(s?.floorOcc||0)/100);},0);
+  const totCapAll=slocRows.reduce((a,r)=>a+r.capM3,0);
+  const totOccAll=slocRows.reduce((a,r)=>a+r.occM3,0);
+  const floorUtilAll=totFP>0?Math.round((totFloorUsed/totFP)*100):0;
+  const binUtilAll=totCapAll>0?Math.min(100,Math.round((totOccAll/totCapAll)*100)):0;
+
+  // ── Colour helper ─────────────────────────────────────────────
+  const uc=v=>v>=75?'var(--rd2)':v>=50?'var(--yw2)':v>0?'var(--gn2)':'var(--tx3)';
+
   return `<div class="pad">
+
+    <!-- ── STAT TILES ── -->
     <div class="sg">
       <div class="sc"><div class="sn">${done}/${SLOC_DEF.length}</div><div class="sl">SLOCs Done</div></div>
-      <div class="sc"><div class="sn">${fN(Math.round(totM2))}</div><div class="sl">Total m²</div></div>
-      <div class="sc"><div class="sn">${totCap.toFixed(0)}</div><div class="sl">Capacity m³</div></div>
-      <div class="sc"><div class="sn">${fN(totSlots2)}</div><div class="sl">Total Slots</div></div>
+      <div class="sc"><div class="sn" style="color:var(--gn2)">${verifiedCnt}/${SLOC_DEF.length}</div><div class="sl">Field Verified</div></div>
+      <div class="sc"><div class="sn" style="color:var(--gn2);font-size:16px">MYR ${(totVal/1000000).toFixed(1)}M</div><div class="sl">Stock Value</div></div>
+      <div class="sc"><div class="sn" style="font-size:14px;color:var(--tx3)">${state.lastSaved?new Date(state.lastSaved).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'-'}</div><div class="sl">Last Saved</div></div>
     </div>
+
+    <!-- ── CAPACITY & UTILISATION ── -->
     <div class="card">
       <div class="card-h"><span class="h3">Capacity & Utilisation</span></div>
       <div class="card-b">
-        ${(()=>{
-          // Roll up occupied volume across all SLOCs
-          const allSys2=SLOC_DEF.flatMap(d=>state.slocs[d.id]?.storageSystems||[]);
-          const totCapAll=allSys2.reduce((a,ss)=>{const m3=slotM3(ss);const ts=totalSlots(ss);
-            if(ss.type==='Open Floor / Pallet Stack') return a+(+ss.areaM2||0)*(+ss.stackH||0);
-            return a+(m3&&ts?m3*ts:0);},0);
-          const totOccAll=allSys2.reduce((a,ss)=>{
-            if(ss.type==='Open Floor / Pallet Stack')
-              return a+(+ss.areaM2||0)*(+ss.stackH||0)*(+ss.occ/100||0)*(+ss.fill||0.5);
-            const m3=slotM3(ss);const ts=totalSlots(ss);
-            return a+(m3&&ts?m3*ts*(+ss.occ/100||0)*(+ss.fill||0.5):0);},0);
-          const overallUtil=totCapAll>0?Math.min(100,Math.round((totOccAll/totCapAll)*100)):0;
-          const verifiedCnt=SLOC_DEF.filter(d=>slocFieldVerified(d.id)).length;
-          const mb52Cnt=SLOC_DEF.filter(d=>d.stock&&!slocFieldVerified(d.id)).length;
-          // Floor space rollup using slider
-          const totFootprint=SLOC_DEF.reduce((a,d)=>{
-            const s2=state.slocs[d.id];
-            return a+(+(s2?.footprintM2||d.m2||0));
-          },0);
-          const totFloorUsed=SLOC_DEF.reduce((a,d)=>{
-            const s2=state.slocs[d.id];
-            const fp=+(s2?.footprintM2||d.m2||0);
-            return a+fp*(+(s2?.floorOcc||0)/100);
-          },0);
-          const totFloorFree=totFootprint-totFloorUsed;
-          const floorUtil=totFootprint>0?Math.round((totFloorUsed/totFootprint)*100):0;
-          if(totCapAll===0&&totFootprint===0) return '<div class="meta">No storage systems logged yet. Add storage systems in each SLOC to see utilisation.</div>';
-          return '<div class="sg" style="grid-template-columns:1fr 1fr;margin-bottom:12px">'
-            +'<div class="sc"><div class="sn" style="color:var(--pu)">'+totFloorUsed.toFixed(0)+'</div><div class="sl">Floor Used m²</div></div>'
-            +'<div class="sc"><div class="sn" style="color:var(--tx2)">'+totFloorFree.toFixed(0)+'</div><div class="sl">Floor Free m²</div></div>'
-            +'</div>'
-            +'<div style="margin-bottom:14px">'
-              +'<div style="display:flex;justify-content:space-between;margin-bottom:6px">'
-                +'<span class="cap">Floor Utilisation</span>'
-                +'<span style="font-size:22px;font-weight:700;color:'+(floorUtil>=75?'var(--rd2)':floorUtil>=50?'var(--yw2)':'var(--gn2)')+'">'+floorUtil+'%</span>'
-              +'</div>'
-              +'<div style="background:var(--br2);border-radius:4px;height:10px;overflow:hidden">'
-                +'<div style="height:100%;border-radius:4px;background:'+(floorUtil>=75?'var(--rd)':floorUtil>=50?'var(--yw)':'var(--gn)')+';width:'+floorUtil+'%;transition:width .4s"></div>'
-              +'</div>'
-              +'<div style="font-size:11px;color:var(--tx3);margin-top:4px">Based on footprint m² × floor occupancy slider per SLOC</div>'
-            +'</div>'
-            +(totCapAll>0?'<div class="sg" style="grid-template-columns:1fr 1fr;margin-bottom:12px">'
-              +'<div class="sc"><div class="sn" style="color:var(--bl)">'+totCapAll.toFixed(0)+'</div><div class="sl">Total Cap m³</div></div>'
-              +'<div class="sc"><div class="sn" style="color:var(--ac2)">'+totOccAll.toFixed(0)+'</div><div class="sl">Occupied m³</div></div>'
-              +'</div>'
-              +'<div style="margin-bottom:14px">'
-                +'<div style="display:flex;justify-content:space-between;margin-bottom:6px">'
-                  +'<span class="cap">Bin Utilisation</span>'
-                  +'<span style="font-size:22px;font-weight:700;color:'+(overallUtil>=75?'var(--rd2)':overallUtil>=50?'var(--yw2)':'var(--gn2)')+'">'+overallUtil+'%</span>'
-                +'</div>'
-                +'<div style="background:var(--br2);border-radius:4px;height:10px;overflow:hidden">'
-                  +'<div style="height:100%;border-radius:4px;background:'+(overallUtil>=75?'var(--rd)':overallUtil>=50?'var(--yw)':'var(--gn)')+';width:'+overallUtil+'%;transition:width .4s"></div>'
-                +'</div>'
-              +'</div>'
-            :'')
-            +'<div style="display:flex;justify-content:space-between;margin-bottom:6px">'
-              +'<span class="meta">Field-verified SLOCs</span><span style="font-weight:700;color:var(--gn2)">'+verifiedCnt+' / '+SLOC_DEF.length+'</span>'
-            +'</div>'
-            +'<div style="display:flex;justify-content:space-between">'
-              +'<span class="meta">MB52 estimated SLOCs</span><span style="font-weight:700;color:var(--bl)">'+mb52Cnt+'</span>'
-            +'</div>';
-        })()}
+        <!-- Grand totals -->
+        <div class="g2" style="margin-bottom:12px">
+          <div style="background:var(--bg);border-radius:var(--r);padding:12px">
+            <div class="cap" style="margin-bottom:6px">Floor Space</div>
+            <div style="font-size:20px;font-weight:700;color:var(--pu)">${fN(Math.round(totFP))} m²</div>
+            <div style="display:flex;justify-content:space-between;margin-top:4px">
+              <span class="meta">${floorUtilAll}% used</span>
+              <span class="meta" style="color:var(--tx3)">${fN(Math.round(totFP-totFloorUsed))} m² free</span>
+            </div>
+            <div class="pbar" style="margin-top:6px"><div class="pbar-f" style="width:${floorUtilAll}%;background:${uc(floorUtilAll)}"></div></div>
+          </div>
+          <div style="background:var(--bg);border-radius:var(--r);padding:12px">
+            <div class="cap" style="margin-bottom:6px">Storage Volume</div>
+            <div style="font-size:20px;font-weight:700;color:var(--bl)">${totCapAll.toFixed(0)} m³</div>
+            <div style="display:flex;justify-content:space-between;margin-top:4px">
+              <span class="meta">${binUtilAll}% used</span>
+              <span class="meta" style="color:var(--ac2)">${totOccAll.toFixed(0)} m³ occ.</span>
+            </div>
+            <div class="pbar" style="margin-top:6px"><div class="pbar-f" style="width:${binUtilAll}%;background:${uc(binUtilAll)}"></div></div>
+          </div>
+        </div>
+
+        <!-- SLOC breakdown table -->
+        ${slocRows.length?`
+        <div class="cap" style="margin-bottom:8px">By SLOC</div>
+        <div style="font-size:10px;color:var(--tx3);margin-bottom:8px">Tap row to open SLOC</div>
+        <!-- Header -->
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:6px 8px;background:var(--sf2);border-radius:6px;margin-bottom:4px">
+          <span style="font-size:9px;font-weight:700;color:var(--tx3);letter-spacing:.5px">SLOC</span>
+          <span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right;letter-spacing:.5px">m²</span>
+          <span style="font-size:9px;font-weight:700;color:var(--pu);text-align:right;letter-spacing:.5px">m²%</span>
+          <span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right;letter-spacing:.5px">m³</span>
+          <span style="font-size:9px;font-weight:700;color:var(--bl);text-align:right;letter-spacing:.5px">m³%</span>
+        </div>
+        ${slocRows.map(r=>`
+          <div onclick="goSloc('${r.id}')" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:8px 8px;border-bottom:1px solid var(--br);cursor:pointer;align-items:center">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--tx)">${r.code}</div>
+              <div style="font-size:9px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.desc}</div>
+            </div>
+            <div style="text-align:right;font-size:11px;color:var(--tx2)">${r.fp?fN(r.fp):'-'}</div>
+            <div style="text-align:right;font-size:12px;font-weight:700;color:${uc(r.floorUtil)}">${r.fp&&r.floorUtil>0?r.floorUtil+'%':'-'}</div>
+            <div style="text-align:right;font-size:11px;color:var(--tx2)">${r.capM3>0?r.capM3.toFixed(0):'-'}</div>
+            <div style="text-align:right;font-size:12px;font-weight:700;color:${uc(r.binUtil)}">${r.capM3>0&&r.binUtil>0?r.binUtil+'%':'-'}</div>
+          </div>`).join('')}
+        <!-- Total row -->
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:8px 8px;background:var(--sf2);border-radius:6px;margin-top:4px;align-items:center">
+          <div style="font-size:11px;font-weight:700;color:var(--tx)">TOTAL</div>
+          <div style="text-align:right;font-size:11px;font-weight:700;color:var(--tx)">${fN(Math.round(totFP))}</div>
+          <div style="text-align:right;font-size:12px;font-weight:700;color:${uc(floorUtilAll)}">${floorUtilAll}%</div>
+          <div style="text-align:right;font-size:11px;font-weight:700;color:var(--tx)">${totCapAll.toFixed(0)}</div>
+          <div style="text-align:right;font-size:12px;font-weight:700;color:${uc(binUtilAll)}">${binUtilAll}%</div>
+        </div>
+        <div style="font-size:10px;color:var(--tx3);margin-top:8px">m²% = floor occ slider · m³% = bin utilisation</div>
+        `:'<div class="meta">Fill in footprint m² and storage systems to see breakdown.</div>'}
       </div>
     </div>
-    <div class="sec">
-      <div class="cap" style="margin-bottom:6px">MB52 Stock Value</div>
-      <div style="font-size:26px;font-weight:700;color:var(--gn2)">${fM(totVal)}</div>
-      <div class="meta" style="margin-top:2px">23 May 2026 · ${fN(SLOC_DEF.filter(d=>d.stock).length)} SLOCs</div>
-    </div>
+
+    <!-- ── TRANSPORT ESTIMATE ── -->
     <div class="card">
-      <div class="card-h">Transport Estimate</span></div>
+      <div class="card-h">Transport Estimate</div>
       <div class="card-b">
         <div class="notice nb2" style="font-size:11px;margin-bottom:12px">MB52 auto-classification + field storage data. 75% loading efficiency. Add 15% buffer for actual procurement.</div>
         ${(()=>{
-          // ── Grand totals from MB52 ──
           const allSlocs=SLOC_DEF.filter(d=>d.stock);
-          // ── Count field-verified SLOCs ──
           const verified=allSlocs.filter(d=>slocFieldVerified(d.id));
           const mb52Only=allSlocs.filter(d=>!slocFieldVerified(d.id));
-          // ── Owner breakdown using blended estimates ──
           const OWNERS=["Wells-SK","Wells-SB","Assets-SK","Assets-SB","Not Assigned"];
           const ownerTotals={};
           OWNERS.forEach(o=>{ownerTotals[o]={c:0,sc:0,t:0,h:0,v:0};});
@@ -1895,28 +1937,24 @@ function rSummary(){
               ot.v+=(d.stock?.v||0)*pct;
             });
           });
-          // Grand totals
           const gc=Object.values(ownerTotals).reduce((a,v)=>a+v.c,0);
           const gsc=Object.values(ownerTotals).reduce((a,v)=>a+v.sc,0);
           const gt=Object.values(ownerTotals).reduce((a,v)=>a+v.t,0);
           const gh=Object.values(ownerTotals).reduce((a,v)=>a+v.h,0);
-          const gv=Object.values(ownerTotals).reduce((a,v)=>a+v.v,0);
-          // Render
-          // Verification banner
           const bannerCol=verified.length===allSlocs.length?'var(--gn)':verified.length>0?'var(--yw)':'var(--bl)';
           const bannerMsg=verified.length===allSlocs.length
-            ?'✅ All '+allSlocs.length+' SLOCs field-verified — estimates based on your measurements'
-            :verified.length>0
-              ?verified.length+'/'+allSlocs.length+' SLOCs field-verified · '+mb52Only.length+' using MB52 baseline'
-              :'0/'+allSlocs.length+' field-verified — all estimates from MB52 baseline';
-          let out='<div style="background:rgba(0,0,0,.2);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:'+bannerCol+'">ℹ '+bannerMsg+'</div>'
-          +'<div class="sg" style="grid-template-columns:1fr 1fr;margin-bottom:14px">'
-            +'<div class="sc"><div class="sn" style="color:var(--bl)">'+gc+'</div><div class="sl">20ft Containers</div></div>'
-            +'<div class="sc"><div class="sn" style="color:var(--yw2)">'+gsc+'</div><div class="sl">Special Ctrs</div></div>'
-            +'<div class="sc"><div class="sn" style="color:var(--ac2)">'+gt+'</div><div class="sl">Trailers</div></div>'
-            +'<div class="sc"><div class="sn" style="color:var(--rd2)">'+gh+'</div><div class="sl">Crane Lifts</div></div>'
+            ?'All '+allSlocs.length+' SLOCs field-verified'
+            :verified.length>0?verified.length+'/'+allSlocs.length+' field-verified · '+mb52Only.length+' using MB52'
+            :'0/'+allSlocs.length+' field-verified — all from MB52';
+          let out='<div style="background:rgba(0,0,0,.2);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:11px;color:'+bannerCol+'">ℹ '+bannerMsg+'</div>';
+          // Grand total tiles with SVG icons
+          out+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">'
+            +'<div class="sc"><div style="display:flex;align-items:center;gap:8px"><div style="color:var(--bl)">'+tIcon("container",22)+'</div><div><div class="sn" style="color:var(--bl);font-size:22px">'+gc+'</div><div class="sl">Containers</div></div></div></div>'
+            +'<div class="sc"><div style="display:flex;align-items:center;gap:8px"><div style="color:var(--yw2)">'+tIcon("hazmat",20)+'</div><div><div class="sn" style="color:var(--yw2);font-size:22px">'+gsc+'</div><div class="sl">Special Ctrs</div></div></div></div>'
+            +'<div class="sc"><div style="display:flex;align-items:center;gap:8px"><div style="color:var(--ac2)">'+tIcon("trailer",26)+'</div><div><div class="sn" style="color:var(--ac2);font-size:22px">'+gt+'</div><div class="sl">Trailers</div></div></div></div>'
+            +'<div class="sc"><div style="display:flex;align-items:center;gap:8px"><div style="color:var(--rd2)">'+tIcon("crane",20)+'</div><div><div class="sn" style="color:var(--rd2);font-size:22px">'+gh+'</div><div class="sl">Crane Lifts</div></div></div></div>'
           +'</div>';
-          // Owner breakdown table
+          // By owner
           out+='<div class="cap" style="margin-bottom:8px">By Owner</div>';
           OWNERS.forEach(owner=>{
             const ot=ownerTotals[owner];
@@ -1924,16 +1962,16 @@ function rSummary(){
             out+='<div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:8px">'
               +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
                 +'<span style="font-size:13px;font-weight:700;color:var(--tx)">'+owner+'</span>'
-                +'<span style="font-size:12px;color:var(--gn2);font-weight:700">MYR '+Number(ot.v).toLocaleString(undefined,{maximumFractionDigits:0})+'</span>'
+                +'<span style="font-size:11px;color:var(--gn2);font-weight:700">MYR '+Number(ot.v).toLocaleString(undefined,{maximumFractionDigits:0})+'</span>'
               +'</div>'
-              +'<div style="display:flex;gap:10px;flex-wrap:wrap">'
-              +(ot.c?'<span style="font-size:12px;color:var(--bl)">📦 '+ot.c+' × 20ft</span>':'')
-              +(ot.sc?'<span style="font-size:12px;color:var(--yw2)">☢ '+ot.sc+' spec.</span>':'')
-              +(ot.t?'<span style="font-size:12px;color:var(--ac2)">🚛 '+ot.t+' trailers</span>':'')
-              +(ot.h?'<span style="font-size:12px;color:var(--rd2)">⚖ '+ot.h+' lifts</span>':'')
+              +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'
+              +(ot.c?'<span style="font-size:12px;color:var(--bl);display:inline-flex;align-items:center;gap:4px">'+tIcon("container",16)+' '+ot.c+'</span>':'')
+              +(ot.sc?'<span style="font-size:12px;color:var(--yw2);display:inline-flex;align-items:center;gap:4px">'+tIcon("hazmat",14)+' '+ot.sc+'</span>':'')
+              +(ot.t?'<span style="font-size:12px;color:var(--ac2);display:inline-flex;align-items:center;gap:4px">'+tIcon("trailer",18)+' '+ot.t+'</span>':'')
+              +(ot.h?'<span style="font-size:12px;color:var(--rd2);display:inline-flex;align-items:center;gap:4px">'+tIcon("crane",16)+' '+ot.h+'</span>':'')
               +'</div></div>';
           });
-          // By SLOC breakdown
+          // By SLOC
           out+='<div style="margin-top:12px"><div class="cap" style="margin-bottom:8px">By SLOC</div>';
           SLOC_DEF.forEach(d=>{
             const bt=slocBestTransport(d.id);
@@ -1942,40 +1980,51 @@ function rSummary(){
             const srcBadge=bt.source==='field'
               ?'<span style="font-size:9px;background:rgba(46,168,74,.2);color:var(--gn2);border-radius:3px;padding:1px 4px;margin-left:4px">F</span>'
               :'<span style="font-size:9px;background:rgba(77,158,247,.15);color:var(--bl);border-radius:3px;padding:1px 4px;margin-left:4px">M</span>';
-            out+='<div style="padding:8px 0;border-bottom:1px solid var(--br);cursor:pointer" onclick="goSloc(\''+d.id+'\')">'
+            out+='<div style="padding:8px 0;border-bottom:1px solid var(--br);cursor:pointer" onclick="goSloc(\''+d.id+'\')"> '
               +'<div style="display:flex;justify-content:space-between;align-items:center">'
                 +'<div><span style="font-size:12px;font-weight:600;color:var(--tx)">'+(s?.code||d.code)+'</span>'+srcBadge
                   +'<div style="font-size:10px;color:var(--tx3)">'+(s?.desc||d.desc)+'</div></div>'
-                +'<div style="display:flex;gap:6px;flex-wrap:wrap;text-align:right">'
-                +(bt.containers?'<span style="font-size:11px;color:var(--bl);font-weight:700">'+bt.containers+' ctr</span>':'')
-                +(bt.special?'<span style="font-size:11px;color:var(--yw2);font-weight:700">'+bt.special+' spec</span>':'')
-                +(bt.trailers?'<span style="font-size:11px;color:var(--ac2);font-weight:700">'+bt.trailers+' trlr</span>':'')
-                +(bt.heavy_lifts?'<span style="font-size:11px;color:var(--rd2);font-weight:700">'+bt.heavy_lifts+' lift</span>':'')
+                +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+                +(bt.containers?'<span style="font-size:11px;color:var(--bl);font-weight:700;display:inline-flex;align-items:center;gap:2px">'+tIcon("container",13)+bt.containers+'</span>':'')
+                +(bt.special?'<span style="font-size:11px;color:var(--yw2);font-weight:700;display:inline-flex;align-items:center;gap:2px">'+tIcon("hazmat",12)+bt.special+'</span>':'')
+                +(bt.trailers?'<span style="font-size:11px;color:var(--ac2);font-weight:700;display:inline-flex;align-items:center;gap:2px">'+tIcon("trailer",15)+bt.trailers+'</span>':'')
+                +(bt.heavy_lifts?'<span style="font-size:11px;color:var(--rd2);font-weight:700;display:inline-flex;align-items:center;gap:2px">'+tIcon("crane",13)+bt.heavy_lifts+'</span>':'')
                 +'</div>'
               +'</div>'
             +'</div>';
           });
-          out+='<div style="font-size:10px;color:var(--tx3);margin-top:6px;padding-top:6px">F = field estimate · M = MB52 · tap to open SLOC</div></div>';
+          out+='<div style="font-size:10px;color:var(--tx3);margin-top:6px;padding-top:6px">F = field · M = MB52 · tap to open SLOC</div></div>';
           return out;
         })()}
       </div>
     </div>
-    <div class="card"><div class="card-h"><span class="h3">SLOC Progress</span></div><div class="card-b">
+
+    <!-- ── MB52 STOCK VALUE ── -->
+    <div class="sec">
+      <div class="cap" style="margin-bottom:6px">MB52 Stock Value</div>
+      <div style="font-size:26px;font-weight:700;color:var(--gn2)">${fM(totVal)}</div>
+      <div class="meta" style="margin-top:2px">23 May 2026 · ${fN(SLOC_DEF.filter(d=>d.stock).length)} SLOCs</div>
+    </div>
+
+    <!-- ── SLOC SURVEY PROGRESS ── -->
+    <div class="card"><div class="card-h"><span class="h3">Survey Progress</span></div><div class="card-b">
       ${SLOC_DEF.map(d=>{const cp=slocComp(d.id);const s=state.slocs[d.id];return`<div class="row" style="margin-bottom:12px;cursor:pointer" onclick="goSloc('${d.id}')">
         <div style="flex:1;min-width:0"><div class="meta" style="font-weight:600">${s?.code||d.code} — ${s?.desc||d.desc}</div>
         <div class="pbar" style="margin-top:4px"><div class="pbar-f" style="width:${cp}%;background:${cp===100?'var(--gn)':'var(--ac)'}"></div></div></div>
         <span class="pill ${cp===100?'pg':cp>0?'pa':'pm'}" style="margin-left:10px;flex-shrink:0">${cp===100?'Done':cp>0?cp+'%':'New'}</span>
       </div>`;}).join('')}
     </div></div>
+
+    <!-- ── ACTION BUTTONS ── -->
     <button class="btn bp" onclick="exportCSV()">Download CSV Report</button>
     <button class="btn bs" onclick="saveToFile()">Download JSON Backup</button>
     <button class="btn bg2" onclick="loadFromFile()">Restore from JSON Backup</button>
     <div style="border-top:1px solid var(--br);margin:16px 0"></div>
     <button class="btn bd" onclick="resetAllData()" style="margin-bottom:4px">⚠ Reset All Data</button>
     <div style="font-size:10px;color:var(--tx3);text-align:center;margin-bottom:8px">Clears all survey entries, tasks, photos and thumbnails. Cannot be undone.</div>
-    <div class="meta" style="text-align:center;margin-top:4px">${state.lastSaved?'Last saved: '+new Date(state.lastSaved).toLocaleString():''}</div>
   </div>`;
 }
+
 
 // ═══ EXPORT ═══════════════════════════════════════════════════════
 function stripE(s){return String(s||'').replace(/[\u{1F300}-\u{1FFFF}\u{2600}-\u{27FF}]/gu,'').replace(/[\u{2300}-\u{23FF}\u{26A0}\u{2139}]/gu,'').trim();}
