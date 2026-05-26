@@ -1819,15 +1819,17 @@ function rSummary(){
       fp,floorUtil,capM3,occM3,binUtil,cp,hasData:fp>0||capM3>0};
   }).filter(r=>r.hasData);
 
-  // Totals
+  // Totals — util% only from SLOCs with data entered
   const totFP=slocRows.reduce((a,r)=>a+r.fp,0);
-  const totFloorUsed=SLOC_DEF.reduce((a,d)=>{
-    const s=state.slocs[d.id];const fp=+(s?.footprintM2||d.m2||0);
-    return a+fp*(+(s?.floorOcc||0)/100);},0);
+  const totFloorUsed=slocRows.reduce((a,r)=>a+r.fp*(r.floorUtil/100),0);
+  // For util% denominator: only SLOCs where occ% > 0
+  const totFPwithData=slocRows.filter(r=>r.floorUtil>0).reduce((a,r)=>a+r.fp,0);
   const totCapAll=slocRows.reduce((a,r)=>a+r.capM3,0);
   const totOccAll=slocRows.reduce((a,r)=>a+r.occM3,0);
-  const floorUtilAll=totFP>0?Math.round((totFloorUsed/totFP)*100):0;
-  const binUtilAll=totCapAll>0?Math.min(100,Math.round((totOccAll/totCapAll)*100)):0;
+  // For m³ util%: only SLOCs with storage systems entered
+  const totCapWithData=slocRows.filter(r=>r.capM3>0).reduce((a,r)=>a+r.capM3,0);
+  const floorUtilAll=totFPwithData>0?Math.round((totFloorUsed/totFPwithData)*100):0;
+  const binUtilAll=totCapWithData>0?Math.min(100,Math.round((totOccAll/totCapWithData)*100)):0;
 
   // ── Colour helper ─────────────────────────────────────────────
   const uc=v=>v>=75?'var(--rd2)':v>=50?'var(--yw2)':v>0?'var(--gn2)':'var(--tx3)';
@@ -1899,7 +1901,7 @@ function rSummary(){
           <div style="text-align:right;font-size:11px;font-weight:700;color:var(--tx)">${totCapAll.toFixed(0)}</div>
           <div style="text-align:right;font-size:12px;font-weight:700;color:${uc(binUtilAll)}">${binUtilAll}%</div>
         </div>
-        <div style="font-size:10px;color:var(--tx3);margin-top:8px">m²% = floor occ slider · m³% = bin utilisation</div>
+        <div style="font-size:10px;color:var(--tx3);margin-top:8px">m²% = floor occ slider · m³% = bin utilisation · Total util% excludes SLOCs with no data</div>
         `:'<div class="meta">Fill in footprint m² and storage systems to see breakdown.</div>'}
       </div>
     </div>
