@@ -617,15 +617,22 @@ function loadFromFile(){
 
 // ═══ ROUTER ═══════════════════════════════════════════════════════
 let CV='map',CZ=null,CST='zone',CSI=null,CTI=null;
-function gv(v){CV=v;CZ=null;CTI=null;
+function gv(v){
+  if(v!=='slocs') state.slocListScroll=0;// reset when navigating away from slocs
+  CV=v;CZ=null;CTI=null;
   document.querySelectorAll('.nb').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   document.getElementById('mnav').style.display='flex';
   document.getElementById('hr').innerHTML='<span class="hdr-badge">FIELD</span>';
   document.getElementById('hs').textContent='ASIAN SUPPLY BASE · LABUAN';
   render();}
-function goSloc(id){CZ=id;CST='zone';CV='sloc';
+function goSloc(id){
+  const scr=document.getElementById('scr');
+  if(scr) state.slocListScroll=scr.scrollTop;
+  CZ=id;CST='zone';CV='sloc';
   document.getElementById('mnav').style.display='none';render();}
-function goTask(id){CTI=id;CV='task-detail';
+function goTask(id){
+  const scr=document.getElementById('scr');
+  if(scr) state.slocListScroll=scr.scrollTop;CTI=id;CV='task-detail';
   document.getElementById('mnav').style.display='none';render();}
 function deleteSloc(id){
   if(!confirm('Delete this SLOC and all its survey data? This cannot be undone.')) return;
@@ -654,6 +661,7 @@ function goBack(){
   if(CV==='storage-form'){CV='sloc';CST='storage';}
   else if(CV==='task-detail'){CV='tasks';CTI=null;}
   else{CV=CZ?'slocs':'map';CZ=null;}
+  // scroll position restored by render() for slocs view
   if(CV!=='sloc'&&CV!=='task-detail')document.getElementById('mnav').style.display='flex';
   render();}
 function setST(t){CST=t;render();
@@ -673,7 +681,14 @@ function loadCaptureThumbsForSloc(sid){
   });
 }
 function render(){
-  document.getElementById('scr').scrollTop=0;
+  const _scr=document.getElementById('scr');
+  if(_scr){
+    if((CV==='slocs'||CV==='tasks')&&state.slocListScroll){
+      requestAnimationFrame(()=>{_scr.scrollTop=state.slocListScroll||0;});
+    } else {
+      _scr.scrollTop=0;
+    }
+  }
   const vc=document.getElementById('vc');
   const ht=document.getElementById('ht');const hr=document.getElementById('hr');const hs=document.getElementById('hs');
   if(CV==='map'){ht.textContent='Field Map';vc.innerHTML=rMap();}
@@ -1122,7 +1137,7 @@ function rStorTab(def,s){
   },0);
   const totM2=sys.reduce((a,ss)=>{
     if(ss.type==='Open Floor / Pallet Stack') return a+(+ss.areaM2||0);
-    return a+(+ss.units||0)*(+ss.levels||1)*(+ss.spu||0)*(+ss.slL/100)*(+ss.slW/100);
+    return a+(+ss.units||0)*(+ss.spu||0)*(+ss.slL/100)*(+ss.slW/100);// levels are vertical — not floor footprint
   },0);
   // Occupied volume per system
   const totOcc=sys.reduce((a,ss)=>{
@@ -2064,11 +2079,16 @@ function exportCSV(){
     ].map(v=>`"${stripE(String(v??'')).replace(/"/g,'""')}"`);
   });
   // Sheet 2 — Storage Systems
-  const h2=['Zone','SLOC','Type','Units','Levels','Slots/Level','Total Slots','Slot L cm','Slot W cm','Slot H cm','Per-slot m³','Total Cap m³','Area m²','Stack Height m','Slot Occ%','Fill%','True Util%','Material Type 1','Mat1 %','Material Type 2','Mat2 %','Material Type 3','Mat3 %','Notes'];
+  const h2=['Zone','SLOC','Type','Units','Levels','Slots/Level','Total Slots','Slot L cm','Slot W cm','Slot H cm','Per-slot m³','Total Cap m³','Occupied m³','Area m²','Stack Height m','Slot Occ%','Fill%','True Util%','Material Type 1','Mat1 %','Material Type 2','Mat2 %','Material Type 3','Mat3 %','Notes'];
   const r2=SLOC_DEF.flatMap(d=>{const s=state.slocs[d.id];return(s?.storageSystems||[]).map(ss=>{
-    const m3=slotM3(ss);const ts=totalSlots(ss);const cap=m3&&ts?+(m3*ts).toFixed(3):0;
-    const tu=trueUtil(ss.occ||0,ss.fill||0.5);
     const isOF=ss.type==='Open Floor / Pallet Stack';
+    const m3=slotM3(ss);const ts=totalSlots(ss);
+    // Open Floor: cap = area × height, occupied = area × height × occ × fill
+    const cap=isOF?(+ss.areaM2||0)*(+ss.stackH||0):m3&&ts?+(m3*ts).toFixed(3):0;
+    const occM3csv=isOF?(+ss.areaM2||0)*(+ss.stackH||0)*(+ss.occ/100||0)*(+ss.fill||0.5)
+      :m3&&ts?+(m3*ts*(+ss.occ/100||0)*(+ss.fill||0.5)).toFixed(3):0;
+    const tu=isOF?Math.min(100,Math.round((+ss.occ/100||0)*(+ss.fill||0.5)*100))
+      :trueUtil(ss.occ||0,ss.fill||0.5);
     const mats=ss.matTypes||[];
     const mt=(i)=>mats[i]?(MTYPES.find(x=>x.id===mats[i].id)||{label:mats[i].id}).label.replace(/^\S+ /,''):'';
     const mp=(i)=>mats[i]?mats[i].pct:'';
@@ -2078,7 +2098,8 @@ function exportCSV(){
       isOF?'':ts,
       isOF?'':ss.slL, isOF?'':ss.slW, isOF?'':ss.slH,
       isOF?'':m3?m3.toFixed(4):'',
-      isOF?((+ss.areaM2||0)*(+ss.stackH||0)*(+ss.occ/100||0)*(+ss.fill||0.5)).toFixed(2):cap,
+      cap.toFixed?cap.toFixed(2):cap,// Total Cap m³
+      occM3csv.toFixed?occM3csv.toFixed(2):'',// Occupied m³
       ss.areaM2||'',ss.stackH||'',
       ss.occ,Math.round((ss.fill||0.5)*100),tu,
       mt(0),mp(0),mt(1),mp(1),mt(2),mp(2),
