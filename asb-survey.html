@@ -2090,8 +2090,8 @@ function showSysTypeDetail(typeEnc){
     :'<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:6px 8px;background:var(--sf2);border-radius:6px;margin-bottom:4px">'
       +'<span style="font-size:9px;font-weight:700;color:var(--tx3)">SLOC</span>'
       +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">Units</span>'
-      +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">L×W×H cm</span>'
-      +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">Slots</span>'
+      +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">W×H×D m</span>'
+      +'<span style="font-size:9px;font-weight:700;color:var(--pu);text-align:right">m²</span>'
       +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">Occ%</span>'
     +'</div>';
 
@@ -2105,14 +2105,23 @@ function showSysTypeDetail(typeEnc){
         +'<div style="text-align:right;font-size:11px;color:var(--tx2)">'+(ss.stackH||'-')+'</div>'
         +'<div style="text-align:right;font-size:11px;color:var(--yw2)">'+(ss.occ||0)+'%</div>'
       +'</div>'
-      :'<div onclick="goSloc(\''+ss.slocId+'\');closeSheet()" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:8px;border-bottom:1px solid var(--br);cursor:pointer;align-items:center">'
-        +'<div><div style="font-size:12px;font-weight:600;color:var(--tx)">'+ss.slocCode+'</div>'
-          +'<div style="font-size:9px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+ss.slocDesc+'</div></div>'
-        +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--ac2)">'+(ss.units||'-')+'</div>'
-        +'<div style="text-align:right;font-size:10px;color:var(--tx2)">'+(ss.slL&&ss.slW&&ss.slH?ss.slL+'×'+ss.slW+'×'+ss.slH:'-')+'</div>'
-        +'<div style="text-align:right;font-size:11px;color:var(--bl)">'+(ts||'-')+'</div>'
-        +'<div style="text-align:right;font-size:11px;color:var(--yw2)">'+(ss.occ||0)+'%</div>'
-      +'</div>';
+      :(()=>{
+        // Bay dimensions: W = spu×slW, H = levels×slH, D = slL (all in metres)
+        const bayW=ss.spu&&ss.slW?((+ss.spu)*(+ss.slW)/100).toFixed(1):'-';
+        const bayH=ss.levels&&ss.slH?((+ss.levels)*(+ss.slH)/100).toFixed(1):'-';
+        const bayD=ss.slL?(+ss.slL/100).toFixed(1):'-';
+        const bayDims=bayW!=='-'&&bayH!=='-'&&bayD!=='-'?bayW+'×'+bayH+'×'+bayD:'-';
+        const footprint=ss.units&&ss.spu&&ss.slL&&ss.slW
+          ?((+ss.units)*(+ss.spu)*(+ss.slL/100)*(+ss.slW/100)).toFixed(1):'-';
+        return '<div onclick="goSloc(\''+ss.slocId+'\');closeSheet()" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:8px;border-bottom:1px solid var(--br);cursor:pointer;align-items:center">'
+          +'<div><div style="font-size:12px;font-weight:600;color:var(--tx)">'+ss.slocCode+'</div>'
+            +'<div style="font-size:9px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+ss.slocDesc+'</div></div>'
+          +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--ac2)">'+(ss.units||'-')+'</div>'
+          +'<div style="text-align:right;font-size:10px;color:var(--tx2)">'+bayDims+'</div>'
+          +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--pu)">'+footprint+'</div>'
+          +'<div style="text-align:right;font-size:11px;color:var(--yw2)">'+(ss.occ||0)+'%</div>'
+        +'</div>';
+      })()
   }).join('');
 
   // Totals row
@@ -2124,12 +2133,18 @@ function showSysTypeDetail(typeEnc){
       +'<div style="font-size:11px;font-weight:700;color:var(--tx)">TOTAL</div>'
       +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--pu)">'+fN(Math.round(totM2))+' m²</div>'
       +'<div></div><div></div></div>'
-    :'<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:8px;background:var(--sf2);border-radius:6px;margin-top:4px">'
-      +'<div style="font-size:11px;font-weight:700;color:var(--tx)">TOTAL</div>'
-      +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--ac2)">'+fN(totUnits)+' units</div>'
-      +'<div></div>'
-      +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--bl)">'+fN(totSlots2)+' slots</div>'
-      +'<div></div></div>';
+    :(()=>{
+      const totFP=allSys.reduce((a,ss)=>{
+        if(ss.type==='Open Floor / Pallet Stack') return a;
+        return a+(+ss.units||0)*(+ss.spu||0)*(+ss.slL/100)*(+ss.slW/100);
+      },0);
+      return '<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:8px;background:var(--sf2);border-radius:6px;margin-top:4px">'
+        +'<div style="font-size:11px;font-weight:700;color:var(--tx)">TOTAL</div>'
+        +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--ac2)">'+fN(totUnits)+' units</div>'
+        +'<div></div>'
+        +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--pu)">'+totFP.toFixed(1)+' m²</div>'
+        +'<div></div></div>';
+    })()
 
   document.getElementById('bs-c').innerHTML='<div style="padding:0 16px 16px">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
@@ -2207,7 +2222,7 @@ function exportXLSX(){
 
   // ── Sheet 2: Storage Systems ───────────────────────────────────
   const h2=['Zone','SLOC','Type','Units','Levels','Slots/Level','Total Slots',
-    'Slot L cm','Slot W cm','Slot H cm','Per-slot m³','Total Cap m³','Occupied m³',
+    'Slot L cm','Slot W cm','Slot H cm','Per-slot m³','Total Cap m³','Occupied m³','Bay W m','Bay H m','Bay D m','Footprint m²',
     'Area m²','Stack Height m','Slot Occ%','Fill%','True Util%',
     'Material Type 1','Mat1 %','Material Type 2','Mat2 %','Material Type 3','Mat3 %',
     'Relocating','Notes'];
@@ -2232,7 +2247,13 @@ function exportXLSX(){
       ss.areaM2||'',ss.stackH||'',
       ss.occ||0,Math.round((ss.fill||0.5)*100),tu,
       mt(0),mp(0),mt(1),mp(1),mt(2),mp(2),
-      ss.relocate===false?'No':'Yes',stripE(ss.notes||'')];
+      ss.relocate===false?'No':'Yes',stripE(ss.notes||''),
+      // Bay dimensions (calculated)
+      isOF?'':ss.spu&&ss.slW?+((+ss.spu)*(+ss.slW)/100).toFixed(2):'',
+      isOF?'':ss.levels&&ss.slH?+((+ss.levels)*(+ss.slH)/100).toFixed(2):'',
+      isOF?'':ss.slL?+(+ss.slL/100).toFixed(2):'',
+      isOF?'':ss.units&&ss.spu&&ss.slL&&ss.slW
+        ?+((+ss.units)*(+ss.spu)*(+ss.slL/100)*(+ss.slW/100)).toFixed(1):''];
   });});
   XLSX.utils.book_append_sheet(wb,mkSheet(h2,r2),'Storage Systems');
 
@@ -2330,11 +2351,21 @@ function exportXLSX(){
       loc?.n||'',c.type==='video'?'Video':'Photo',c.name||'',c.ts||'']);});
   XLSX.utils.book_append_sheet(wb,mkSheet(h9,r9),'Captures');
 
-  // ── Download ───────────────────────────────────────────────────
+  // ── Download via blob → triggers iOS share sheet ─────────────
   const d2=new Date();
   const ts2=d2.toISOString().slice(0,10)+'_'+d2.toTimeString().slice(0,8).replace(/:/g,'');
-  XLSX.writeFile(wb,'ASB_Survey_'+ts2+'.xlsx');
-  showToast('Excel report downloaded',2000);
+  const fname='ASB_Survey_'+ts2+'.xlsx';
+  const wbout=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  const blob=new Blob([wbout],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.setAttribute('download',fname);
+  a.style.display='none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},3000);
+  showToast('Excel saved — tap Save to Files when prompted',2500);
 }
 function exportCSV(){
   // Sheet 1 — SLOC Summary
