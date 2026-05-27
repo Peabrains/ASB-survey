@@ -216,6 +216,7 @@ hr{border:none;border-top:1px solid var(--br);margin:14px 0}
 #lb-fname{position:absolute;bottom:20px;left:0;right:0;text-align:center;
   font-size:11px;color:rgba(255,255,255,.5);padding:0 20px;word-break:break-all}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.mini.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -1998,8 +1999,66 @@ function rSummary(){
     ${sec('cap','Capacity & Utilisation',capContent)}
     ${sec('tr','Transport Estimate',trContent)}
     ${sec('prog','Survey Progress',progContent)}
+    ${(()=>{
+      // ── Storage Systems Inventory ──────────────────────────────
+      const allSysInv=SLOC_DEF.flatMap(d=>{
+        const s=state.slocs[d.id]||{};
+        return (s.storageSystems||[]).map(ss=>({...ss,slocId:d.id,slocCode:s.code||d.code,slocDesc:s.desc||d.desc}));
+      });
+      if(!allSysInv.length) return '';
+
+      // Group by type
+      const typeMap={};
+      allSysInv.forEach(ss=>{
+        const t=ss.type==='Other'?(ss.customType||'Other'):ss.type;
+        if(!typeMap[t])typeMap[t]={systems:[],totalUnits:0,totalM2:0};
+        typeMap[t].systems.push(ss);
+        if(ss.type==='Open Floor / Pallet Stack'){
+          typeMap[t].totalM2+=(+ss.areaM2||0);
+        } else {
+          typeMap[t].totalUnits+=(+ss.units||0);
+        }
+      });
+
+      const types=Object.entries(typeMap).sort((a,b)=>b[1].systems.length-a[1].systems.length);
+      const totalSystems=allSysInv.length;
+      const isOF=t=>t==='Open Floor / Pallet Stack';
+
+      const typeRows=types.map(([t,g])=>{
+        const qty=isOF(t)?fN(Math.round(g.totalM2))+' m²':fN(g.totalUnits)+' units';
+        const pct=Math.round(g.systems.length/totalSystems*100);
+        return '<div onclick="showSysTypeDetail(\''+encodeURIComponent(t)+'\')" style="padding:10px 0;border-bottom:1px solid var(--br);cursor:pointer">'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+            +'<span style="font-size:12px;font-weight:600;color:var(--tx)">'+t+'</span>'
+            +'<div style="display:flex;align-items:center;gap:8px">'
+              +'<span style="font-size:12px;font-weight:700;color:var(--ac2)">'+qty+'</span>'
+              +'<span style="font-size:10px;color:var(--tx3)">'+g.systems.length+' '+(g.systems.length===1?'SLOC':'SLOCs')+'</span>'
+            +'</div>'
+          +'</div>'
+          +'<div style="background:var(--br2);border-radius:3px;height:4px;overflow:hidden">'
+            +'<div style="height:100%;border-radius:3px;background:var(--ac);width:'+pct+'%"></div>'
+          +'</div>'
+        +'</div>';
+      }).join('');
+
+      const slocWithSys=SLOC_DEF.filter(d=>(state.slocs[d.id]?.storageSystems||[]).length>0).length;
+      const invContent='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+          +'<div>'
+            +'<div style="font-size:26px;font-weight:700;color:var(--tx)">'+totalSystems+'</div>'
+            +'<div class="meta">storage systems across '+slocWithSys+' SLOCs</div>'
+          +'</div>'
+          +'<div style="text-align:right">'
+            +'<div style="font-size:13px;font-weight:600;color:var(--tx)">'+types.length+' types</div>'
+            +'<div class="meta">in use</div>'
+          +'</div>'
+        +'</div>'
+        +'<div style="font-size:10px;color:var(--tx3);margin-bottom:10px">Tap a row to see which SLOCs and dimensions</div>'
+        +typeRows;
+
+      return sec('inv','Storage Systems Inventory',invContent);
+    })()}
     <div class="card"><div class="card-b">
-      <button class="btn bp" onclick="exportCSV()" style="margin-bottom:8px">Download CSV Report</button>
+      <button class="btn bp" onclick="exportXLSX()" style="margin-bottom:8px">Download Excel Report</button>
       <button class="btn bs" onclick="saveToFile()" style="margin-bottom:8px">Download JSON Backup</button>
       <button class="btn bg2" onclick="loadFromFile()" style="margin-bottom:8px">Restore from JSON Backup</button>
       <div style="border-top:1px solid var(--br);margin:8px 0"></div>
@@ -2009,6 +2068,81 @@ function rSummary(){
   </div>`;
 }
 
+function showSysTypeDetail(typeEnc){
+  const t=decodeURIComponent(typeEnc);
+  const isOF=t==='Open Floor / Pallet Stack';
+  const allSys=SLOC_DEF.flatMap(d=>{
+    const s=state.slocs[d.id]||{};
+    return(s.storageSystems||[])
+      .filter(ss=>(ss.type==='Other'?(ss.customType||'Other'):ss.type)===t)
+      .map(ss=>({...ss,slocId:d.id,slocCode:s.code||d.code,slocDesc:s.desc||d.desc}));
+  });
+  if(!allSys.length) return;
+
+  // Header row
+  const hdr=isOF
+    ?'<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:4px;padding:6px 8px;background:var(--sf2);border-radius:6px;margin-bottom:4px">'
+      +'<span style="font-size:9px;font-weight:700;color:var(--tx3)">SLOC</span>'
+      +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">Area m²</span>'
+      +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">Stack m</span>'
+      +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">Occ%</span>'
+    +'</div>'
+    :'<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:6px 8px;background:var(--sf2);border-radius:6px;margin-bottom:4px">'
+      +'<span style="font-size:9px;font-weight:700;color:var(--tx3)">SLOC</span>'
+      +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">Units</span>'
+      +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">L×W×H cm</span>'
+      +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">Slots</span>'
+      +'<span style="font-size:9px;font-weight:700;color:var(--tx3);text-align:right">Occ%</span>'
+    +'</div>';
+
+  const rows=allSys.map(ss=>{
+    const ts=totalSlots(ss);
+    return isOF
+      ?'<div onclick="goSloc(\''+ss.slocId+'\');closeSheet()" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:4px;padding:8px;border-bottom:1px solid var(--br);cursor:pointer;align-items:center">'
+        +'<div><div style="font-size:12px;font-weight:600;color:var(--tx)">'+ss.slocCode+'</div>'
+          +'<div style="font-size:9px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+ss.slocDesc+'</div></div>'
+        +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--pu)">'+(ss.areaM2||'-')+'</div>'
+        +'<div style="text-align:right;font-size:11px;color:var(--tx2)">'+(ss.stackH||'-')+'</div>'
+        +'<div style="text-align:right;font-size:11px;color:var(--yw2)">'+(ss.occ||0)+'%</div>'
+      +'</div>'
+      :'<div onclick="goSloc(\''+ss.slocId+'\');closeSheet()" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:8px;border-bottom:1px solid var(--br);cursor:pointer;align-items:center">'
+        +'<div><div style="font-size:12px;font-weight:600;color:var(--tx)">'+ss.slocCode+'</div>'
+          +'<div style="font-size:9px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+ss.slocDesc+'</div></div>'
+        +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--ac2)">'+(ss.units||'-')+'</div>'
+        +'<div style="text-align:right;font-size:10px;color:var(--tx2)">'+(ss.slL&&ss.slW&&ss.slH?ss.slL+'×'+ss.slW+'×'+ss.slH:'-')+'</div>'
+        +'<div style="text-align:right;font-size:11px;color:var(--bl)">'+(ts||'-')+'</div>'
+        +'<div style="text-align:right;font-size:11px;color:var(--yw2)">'+(ss.occ||0)+'%</div>'
+      +'</div>';
+  }).join('');
+
+  // Totals row
+  const totUnits=allSys.reduce((a,ss)=>a+(+ss.units||0),0);
+  const totM2=allSys.reduce((a,ss)=>a+(+ss.areaM2||0),0);
+  const totSlots2=allSys.reduce((a,ss)=>a+totalSlots(ss),0);
+  const totRow=isOF
+    ?'<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:4px;padding:8px;background:var(--sf2);border-radius:6px;margin-top:4px">'
+      +'<div style="font-size:11px;font-weight:700;color:var(--tx)">TOTAL</div>'
+      +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--pu)">'+fN(Math.round(totM2))+' m²</div>'
+      +'<div></div><div></div></div>'
+    :'<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:4px;padding:8px;background:var(--sf2);border-radius:6px;margin-top:4px">'
+      +'<div style="font-size:11px;font-weight:700;color:var(--tx)">TOTAL</div>'
+      +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--ac2)">'+fN(totUnits)+' units</div>'
+      +'<div></div>'
+      +'<div style="text-align:right;font-size:11px;font-weight:700;color:var(--bl)">'+fN(totSlots2)+' slots</div>'
+      +'<div></div></div>';
+
+  document.getElementById('bs-c').innerHTML='<div style="padding:0 16px 16px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+      +'<div><div style="font-size:15px;font-weight:700;color:var(--tx)">'+t+'</div>'
+        +'<div style="font-size:11px;color:var(--tx3)">'+allSys.length+' system'+(allSys.length>1?'s':'')+' across '+new Set(allSys.map(s=>s.slocId)).size+' SLOCs</div>'
+      +'</div>'
+      +'<button onclick="closeSheet()" style="background:none;border:none;color:var(--tx3);font-size:24px;cursor:pointer">×</button>'
+    +'</div>'
+    +hdr+rows+totRow
+    +'<div style="font-size:10px;color:var(--tx3);margin-top:10px">Tap a row to open that SLOC</div>'
+  +'</div>';
+  openSheet();
+}
 function toggleSumSec(key){
   if(!state.sumCollapsed)state.sumCollapsed={};
   state.sumCollapsed[key]=!state.sumCollapsed[key];
@@ -2021,6 +2155,187 @@ function toggleSumSec(key){
 
 // ═══ EXPORT ═══════════════════════════════════════════════════════
 function stripE(s){return String(s||'').replace(/[\u{1F300}-\u{1FFFF}\u{2600}-\u{27FF}]/gu,'').replace(/[\u{2300}-\u{23FF}\u{26A0}\u{2139}]/gu,'').trim();}
+function exportXLSX(){
+  if(typeof XLSX==='undefined'){showToast('Loading Excel library...',1500);setTimeout(exportXLSX,1500);return;}
+  const wb=XLSX.utils.book_new();
+  const hStyle={font:{bold:true}};
+
+  function mkSheet(headers,rows){
+    const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+    // Column widths
+    ws['!cols']=headers.map(h=>({wch:Math.max(h.length,12)}));
+    // Freeze header row
+    ws['!freeze']={xSplit:0,ySplit:1};
+    return ws;
+  }
+
+  function stripE(s){return String(s||'').replace(/[\u{1F300}-\u{1FFFF}\u{2600}-\u{27FF}]/gu,'').trim();}
+
+  // ── Sheet 1: SLOC Survey Summary ──────────────────────────────
+  const h1=['SLOC Code','Description','Location','Facility Type','Footprint m²',
+    'Floor Occ%','Floor Used m²','Floor Free m²','Air Con','SAP Material',
+    'Configured Storage','Overflow','Overflow Desc','Overflow m²',
+    '# Systems','Total Slots','Total Cap m³','Total Rack m²','Occupied m³',
+    'Bin Util%','Stock Items','Stock Value MYR','# Owners','Owner Detail',
+    'Observations','Special Reqs','Photos','Videos','Captures (Quick)','Last Updated'];
+  const r1=SLOC_DEF.map(d=>{
+    const s=state.slocs[d.id]||{};const sys=s.storageSystems||[];
+    const ts=sys.reduce((a,ss)=>a+totalSlots(ss),0);
+    const tc=sys.reduce((a,ss)=>{const m3=slotM3(ss);const t=totalSlots(ss);return a+(m3&&t?m3*t:0);},0);
+    const totM2f=sys.reduce((a,ss)=>{
+      if(ss.type==='Open Floor / Pallet Stack')return a+(+ss.areaM2||0);
+      return a+(+ss.units||0)*(+ss.spu||0)*(+ss.slL/100)*(+ss.slW/100);},0);
+    const totOccM3=sys.reduce((a,ss)=>{
+      if(ss.type==='Open Floor / Pallet Stack')return a+(+ss.areaM2||0)*(+ss.stackH||0)*(+ss.occ/100||0)*(+ss.fill||0.5);
+      const m3=slotM3(ss);const ts2=totalSlots(ss);
+      return a+(m3&&ts2?m3*ts2*((+ss.occ/100||0)*(+ss.fill||0.5)):0);},0);
+    const binUtil=tc>0?Math.min(100,Math.round((totOccM3/tc)*100)):0;
+    const fp=+(s.footprintM2||d.m2||0);
+    const floorUsed=Math.round(fp*(+(s.floorOcc||0)/100));
+    const ownerStr=(s.owners||[]).filter(o=>o.name).map(o=>o.name+' '+o.pct+'%').join(' | ');
+    return[s.code||d.code,stripE(s.desc||d.desc),getAllLocs().find(x=>x.id===d.loc)?.n||'',
+      stripE(s.facilityType||''),fp,s.floorOcc||0,floorUsed,fp-floorUsed,
+      s.airCon||'',s.sapMaterial||'',s.configuredStorage||'',
+      s.hasOverflow?'Yes':'No',stripE(s.overflowDesc||''),s.overflowM2||'',
+      sys.length,ts,+tc.toFixed(2),+totM2f.toFixed(1),+totOccM3.toFixed(2),binUtil,
+      d.stock?.i||'',d.stock?.v||'',
+      (s.owners||[]).filter(o=>o.name).length,ownerStr,
+      stripE(s.observations||''),stripE(s.specialReqs||''),
+      s.photos||0,s.videos||0,(s.captures||[]).length,s.lastUpdated||''];
+  });
+  XLSX.utils.book_append_sheet(wb,mkSheet(h1,r1),'SLOC Summary');
+
+  // ── Sheet 2: Storage Systems ───────────────────────────────────
+  const h2=['Zone','SLOC','Type','Units','Levels','Slots/Level','Total Slots',
+    'Slot L cm','Slot W cm','Slot H cm','Per-slot m³','Total Cap m³','Occupied m³',
+    'Area m²','Stack Height m','Slot Occ%','Fill%','True Util%',
+    'Material Type 1','Mat1 %','Material Type 2','Mat2 %','Material Type 3','Mat3 %',
+    'Relocating','Notes'];
+  const r2=SLOC_DEF.flatMap(d=>{const s=state.slocs[d.id];return(s?.storageSystems||[]).map(ss=>{
+    const isOF=ss.type==='Open Floor / Pallet Stack';
+    const m3=slotM3(ss);const ts=totalSlots(ss);
+    const cap=isOF?(+ss.areaM2||0)*(+ss.stackH||0):m3&&ts?+(m3*ts).toFixed(3):0;
+    const occM3=isOF?(+ss.areaM2||0)*(+ss.stackH||0)*(+ss.occ/100||0)*(+ss.fill||0.5)
+      :m3&&ts?+(m3*ts*(+ss.occ/100||0)*(+ss.fill||0.5)).toFixed(3):0;
+    const tu=isOF?Math.min(100,Math.round((+ss.occ/100||0)*(+ss.fill||0.5)*100))
+      :trueUtil(ss.occ||0,ss.fill||0.5);
+    const mats=ss.matTypes||[];
+    const mt=i=>mats[i]?(MTYPES.find(x=>x.id===mats[i].id)||{label:mats[i].id}).label.replace(/^\S+ /,''):'';
+    const mp=i=>mats[i]?mats[i].pct:'';
+    return[getAllLocs().find(x=>x.id===d.loc)?.n||'',s?.code||d.code,
+      ss.type==='Other'?ss.customType:ss.type,
+      isOF?'':ss.units||'',isOF?'':ss.levels||1,isOF?'':ss.spu||'',
+      isOF?'':ts||'',
+      isOF?'':ss.slL||'',isOF?'':ss.slW||'',isOF?'':ss.slH||'',
+      isOF?'':m3?+m3.toFixed(4):'',
+      cap?+cap.toFixed(2):'',occM3?+occM3.toFixed(3):'',
+      ss.areaM2||'',ss.stackH||'',
+      ss.occ||0,Math.round((ss.fill||0.5)*100),tu,
+      mt(0),mp(0),mt(1),mp(1),mt(2),mp(2),
+      ss.relocate===false?'No':'Yes',stripE(ss.notes||'')];
+  });});
+  XLSX.utils.book_append_sheet(wb,mkSheet(h2,r2),'Storage Systems');
+
+  // ── Sheet 3: Storage Inventory (aggregated by type) ───────────
+  const h3=['Storage Type','# SLOCs','Total Units','Total m²','Total Slots','Total Cap m³','Occupied m³','Avg Occ%'];
+  const typeMap={};
+  SLOC_DEF.forEach(d=>{const s=state.slocs[d.id];(s?.storageSystems||[]).forEach(ss=>{
+    const t=ss.type==='Other'?(ss.customType||'Other'):ss.type;
+    if(!typeMap[t])typeMap[t]={slocs:new Set(),units:0,m2:0,slots:0,capM3:0,occM3:0,occArr:[]};
+    const g=typeMap[t];g.slocs.add(d.id);
+    const isOF=ss.type==='Open Floor / Pallet Stack';
+    const m3=slotM3(ss);const ts=totalSlots(ss);
+    if(isOF){g.m2+=(+ss.areaM2||0);g.capM3+=(+ss.areaM2||0)*(+ss.stackH||0);
+      g.occM3+=(+ss.areaM2||0)*(+ss.stackH||0)*(+ss.occ/100||0)*(+ss.fill||0.5);}
+    else{g.units+=(+ss.units||0);g.slots+=ts;g.capM3+=m3&&ts?m3*ts:0;
+      g.occM3+=m3&&ts?m3*ts*(+ss.occ/100||0)*(+ss.fill||0.5):0;}
+    if(ss.occ>0)g.occArr.push(+ss.occ);
+  });});
+  const r3=Object.entries(typeMap).sort((a,b)=>b[1].slocs.size-a[1].slocs.size).map(([t,g])=>{
+    const avgOcc=g.occArr.length?Math.round(g.occArr.reduce((a,v)=>a+v,0)/g.occArr.length):0;
+    return[t,g.slocs.size,g.units||'',g.m2?+g.m2.toFixed(0):'',
+      g.slots||'',+g.capM3.toFixed(1),+g.occM3.toFixed(1),avgOcc];
+  });
+  // Total row
+  r3.push(['TOTAL',
+    new Set(SLOC_DEF.flatMap(d=>(state.slocs[d.id]?.storageSystems||[]).map(()=>d.id))).size,
+    Object.values(typeMap).reduce((a,g)=>a+g.units,0),
+    +Object.values(typeMap).reduce((a,g)=>a+g.m2,0).toFixed(0),
+    Object.values(typeMap).reduce((a,g)=>a+g.slots,0),
+    +Object.values(typeMap).reduce((a,g)=>a+g.capM3,0).toFixed(1),
+    +Object.values(typeMap).reduce((a,g)=>a+g.occM3,0).toFixed(1),'']);
+  XLSX.utils.book_append_sheet(wb,mkSheet(h3,r3),'Storage Inventory');
+
+  // ── Sheet 4: Material Owners ───────────────────────────────────
+  const h4=['Zone','SLOC','Description','Owner','% Share'];
+  const r4=SLOC_DEF.flatMap(d=>{const s=state.slocs[d.id];return(s?.owners||[]).map(o=>[
+    getAllLocs().find(x=>x.id===d.loc)?.n||'',s?.code||d.code,stripE(s?.desc||d.desc),o.name,o.pct]);});
+  XLSX.utils.book_append_sheet(wb,mkSheet(h4,r4),'Material Owners');
+
+  // ── Sheet 5: Preservation ──────────────────────────────────────
+  const p=state.preservation||{};
+  const h5=['Field','Value'];
+  const r5=[['Space Used (m²)',p.spaceM2||''],['Service Type',p.service||''],
+    ['Vendor',stripE(p.vendor||'')],['Location on Site',stripE(p.location||'')],
+    ['Activity Plan',stripE(p.activityPlan||'')],['Frequency',p.frequency||''],
+    ['Observations',stripE(p.observations||'')]];
+  XLSX.utils.book_append_sheet(wb,mkSheet(h5,r5),'Preservation');
+
+  // ── Sheet 6: Tasks ─────────────────────────────────────────────
+  const h6=['Title','Description','Outcome / Findings','Linked SLOC','Priority','Status','Due Date','Created'];
+  const r6=(state.tasks||[]).map(t=>[stripE(t.title||''),stripE(t.desc||''),
+    stripE(t.outcome||''),t.slocRef||'',t.priority||'',t.status||'',t.due||'',t.created||'']);
+  XLSX.utils.book_append_sheet(wb,mkSheet(h6,r6),'Tasks');
+
+  // ── Sheet 7: Transport Estimate ────────────────────────────────
+  const h7=['SLOC Code','Description','Source','Field Verified','Containers','Special Ctrs','Trailers','Crane Lifts','Stock Value MYR'];
+  const r7=SLOC_DEF.map(d=>{const bt=slocBestTransport(d.id);const s=state.slocs[d.id];
+    return[s?.code||d.code,stripE(s?.desc||d.desc),bt.source==='field'?'Field':'MB52',
+      slocFieldVerified(d.id)?'Yes':'No',bt.containers||0,bt.special||0,bt.trailers||0,bt.heavy_lifts||0,d.stock?.v||0];});
+  const OWNERS_T=["Wells-SK","Wells-SB","Assets-SK","Assets-SB","Not Assigned"];
+  const ownerMap={};OWNERS_T.forEach(o=>{ownerMap[o]={c:0,sc:0,t:0,h:0,v:0};});
+  SLOC_DEF.filter(d=>d.stock).forEach(d=>{
+    const s=state.slocs[d.id]||{};const bt=slocBestTransport(d.id);const owners=s.owners||[];
+    if(!owners.length||!owners.some(o=>o.name&&o.pct>0)){
+      const ot=ownerMap["Not Assigned"];ot.c+=bt.containers||0;ot.sc+=bt.special||0;
+      ot.t+=bt.trailers||0;ot.h+=bt.heavy_lifts||0;ot.v+=d.stock?.v||0;return;}
+    owners.forEach(o=>{if(!o.name||!o.pct)return;
+      const key=OWNERS_T.includes(o.name)?o.name:"Not Assigned";
+      const pct=(+o.pct||0)/100;const ot=ownerMap[key];
+      ot.c+=Math.ceil((bt.containers||0)*pct);ot.sc+=Math.ceil((bt.special||0)*pct);
+      ot.t+=Math.ceil((bt.trailers||0)*pct);ot.h+=Math.ceil((bt.heavy_lifts||0)*pct);
+      ot.v+=(d.stock?.v||0)*pct;});});
+  r7.push(['GRAND TOTAL','','','',
+    r7.reduce((a,r)=>a+(+r[4]||0),0),r7.reduce((a,r)=>a+(+r[5]||0),0),
+    r7.reduce((a,r)=>a+(+r[6]||0),0),r7.reduce((a,r)=>a+(+r[7]||0),0),
+    SLOC_DEF.reduce((a,d)=>a+(d.stock?.v||0),0)]);
+  XLSX.utils.book_append_sheet(wb,mkSheet(h7,r7),'Transport Estimate');
+
+  // ── Sheet 8: Transport by Owner ────────────────────────────────
+  const h8=['Owner','Containers','Special Ctrs','Trailers','Crane Lifts','Stock Value MYR'];
+  const r8=OWNERS_T.filter(o=>ownerMap[o].c||ownerMap[o].t||ownerMap[o].h||ownerMap[o].v)
+    .map(o=>[o,ownerMap[o].c,ownerMap[o].sc,ownerMap[o].t,ownerMap[o].h,Math.round(ownerMap[o].v)]);
+  r8.push(['TOTAL',Object.values(ownerMap).reduce((a,v)=>a+v.c,0),
+    Object.values(ownerMap).reduce((a,v)=>a+v.sc,0),
+    Object.values(ownerMap).reduce((a,v)=>a+v.t,0),
+    Object.values(ownerMap).reduce((a,v)=>a+v.h,0),
+    Math.round(Object.values(ownerMap).reduce((a,v)=>a+v.v,0))]);
+  XLSX.utils.book_append_sheet(wb,mkSheet(h8,r8),'Transport by Owner');
+
+  // ── Sheet 9: Quick Capture Files ──────────────────────────────
+  const h9=['SLOC Code','Description','Location','Type','Filename','Timestamp'];
+  const r9=SLOC_DEF.flatMap(d=>{const s=state.slocs[d.id]||{};
+    const loc=getAllLocs().find(x=>x.id===d.loc);
+    return(s.captures||[]).map(c=>[s.code||d.code,stripE(s.desc||d.desc),
+      loc?.n||'',c.type==='video'?'Video':'Photo',c.name||'',c.ts||'']);});
+  XLSX.utils.book_append_sheet(wb,mkSheet(h9,r9),'Captures');
+
+  // ── Download ───────────────────────────────────────────────────
+  const d2=new Date();
+  const ts2=d2.toISOString().slice(0,10)+'_'+d2.toTimeString().slice(0,8).replace(/:/g,'');
+  XLSX.writeFile(wb,'ASB_Survey_'+ts2+'.xlsx');
+  showToast('Excel report downloaded',2000);
+}
 function exportCSV(){
   // Sheet 1 — SLOC Summary
   const h1=['SLOC Code','Description','Location','Facility Type','Footprint m²','Floor Occ%','Floor Used m²','Floor Free m²','Air Con','SAP Material','Configured Storage','Overflow','Overflow Desc','Overflow m²','# Systems','Total Slots','Total Cap m³','Total Rack m²','Occupied m³','Bin Util%','Stock Items','Stock Value MYR','# Owners','Owner Detail','Observations','Special Reqs','Photos','Videos','Captures (Quick)','Last Updated'];
