@@ -2221,11 +2221,7 @@ function exportXLSX(){
   XLSX.utils.book_append_sheet(wb,mkSheet(h1,r1),'SLOC Summary');
 
   // ── Sheet 2: Storage Systems ───────────────────────────────────
-  const h2=['Zone','SLOC','Type','Units','Levels','Slots/Level','Total Slots',
-    'Slot L cm','Slot W cm','Slot H cm','Per-slot m³','Total Cap m³','Occupied m³','Bay W m','Bay H m','Bay D m','Footprint m²',
-    'Area m²','Stack Height m','Slot Occ%','Fill%','True Util%',
-    'Material Type 1','Mat1 %','Material Type 2','Mat2 %','Material Type 3','Mat3 %',
-    'Relocating','Notes'];
+    const h2=['Zone','SLOC','Type','Units','Levels','Slots/Level','Total Slots','Slot L cm','Slot W cm','Slot H cm','Per-slot m³','Total Cap m³','Occupied m³','Area m²','Stack Height m','Slot Occ%','Fill%','True Util%','Material Type 1','Mat1 %','Material Type 2','Mat2 %','Material Type 3','Mat3 %','Bay W m','Bay H m','Bay D m','Footprint m²','Relocating','Notes'];
   const r2=SLOC_DEF.flatMap(d=>{const s=state.slocs[d.id];return(s?.storageSystems||[]).map(ss=>{
     const isOF=ss.type==='Open Floor / Pallet Stack';
     const m3=slotM3(ss);const ts=totalSlots(ss);
@@ -2237,6 +2233,11 @@ function exportXLSX(){
     const mats=ss.matTypes||[];
     const mt=i=>mats[i]?(MTYPES.find(x=>x.id===mats[i].id)||{label:mats[i].id}).label.replace(/^\S+ /,''):'';
     const mp=i=>mats[i]?mats[i].pct:'';
+    const bayW=isOF?'':ss.spu&&ss.slW?+((+ss.spu)*(+ss.slW)/100).toFixed(2):'';
+    const bayH=isOF?'':ss.levels&&ss.slH?+((+ss.levels)*(+ss.slH)/100).toFixed(2):'';
+    const bayD=isOF?'':ss.slL?+(+ss.slL/100).toFixed(2):'';
+    const bayFP=isOF?'':ss.units&&ss.spu&&ss.slL&&ss.slW
+      ?+((+ss.units)*(+ss.spu)*(+ss.slL/100)*(+ss.slW/100)).toFixed(1):'';
     return[getAllLocs().find(x=>x.id===d.loc)?.n||'',s?.code||d.code,
       ss.type==='Other'?ss.customType:ss.type,
       isOF?'':ss.units||'',isOF?'':ss.levels||1,isOF?'':ss.spu||'',
@@ -2247,13 +2248,8 @@ function exportXLSX(){
       ss.areaM2||'',ss.stackH||'',
       ss.occ||0,Math.round((ss.fill||0.5)*100),tu,
       mt(0),mp(0),mt(1),mp(1),mt(2),mp(2),
-      ss.relocate===false?'No':'Yes',stripE(ss.notes||''),
-      // Bay dimensions (calculated)
-      isOF?'':ss.spu&&ss.slW?+((+ss.spu)*(+ss.slW)/100).toFixed(2):'',
-      isOF?'':ss.levels&&ss.slH?+((+ss.levels)*(+ss.slH)/100).toFixed(2):'',
-      isOF?'':ss.slL?+(+ss.slL/100).toFixed(2):'',
-      isOF?'':ss.units&&ss.spu&&ss.slL&&ss.slW
-        ?+((+ss.units)*(+ss.spu)*(+ss.slL/100)*(+ss.slW/100)).toFixed(1):''];
+      bayW,bayH,bayD,bayFP,
+      ss.relocate===false?'No':'Yes',stripE(ss.notes||'')];
   });});
   XLSX.utils.book_append_sheet(wb,mkSheet(h2,r2),'Storage Systems');
 
