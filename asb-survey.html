@@ -2173,50 +2173,41 @@ function toggleSumSec(key){
 // ═══ EXPORT ═══════════════════════════════════════════════════════
 function stripE(s){return String(s||'').replace(/[\u{1F300}-\u{1FFFF}\u{2600}-\u{27FF}]/gu,'').replace(/[\u{2300}-\u{23FF}\u{26A0}\u{2139}]/gu,'').trim();}
 function exportPPTX(){
-  if(typeof PptxGenJS==='undefined'){
-    showToast('Loading PowerPoint library...',1500);
-    setTimeout(exportPPTX,1500);return;
-  }
-
+  if(typeof PptxGenJS==='undefined'){showToast('Loading PowerPoint library...',1500);setTimeout(exportPPTX,1500);return;}
   const prs=new PptxGenJS();
-  prs.layout='LAYOUT_16x9';
+  prs.layout='LAYOUT_16x9';// 10" × 5.625"
   prs.title='ASB Labuan Supply Base Relocation Survey';
-  prs.author='Field Survey App';
 
-  // ── Design tokens ──────────────────────────────────────────────
+  // ── Palette: Ocean Gradient ────────────────────────────────────
   const C={
-    navy:'0A1628', amber:'F5B53F', white:'FFFFFF',
-    offwhite:'F4F6F9', charcoal:'1E2A3A', grey:'6B7A8D',
-    ltgrey:'D8DEE8', green:'2EA84B', red:'E8433A', blue:'3D9AF5',
-    amber2:'E0952A', teal:'1AA8A0', purple:'7B6EF5',
-    rowalt:'EEF1F6'
+    deep:'065A82',teal:'1C7293',midnight:'21295C',
+    white:'FFFFFF',offwhite:'F7FAFC',
+    charcoal:'1E293B',grey:'64748B',ltgrey:'E2E8F0',
+    green:'16A34A',amber:'D97706',red:'DC2626',
+    blue:'2563EB',purple:'7C3AED',
   };
 
-  const masterTitle={fill:{color:C.navy}};
-  const footerOpts={x:0.1,y:6.9,w:9.8,h:0.2,fontSize:8,color:C.grey,align:'center'};
-  const FOOTER='ASB Labuan Supply Base Relocation Survey  ·  Internal & Confidential';
+  const W=10,H=5.625;
+  const mkShadow=()=>({type:'outer',blur:8,offset:3,angle:135,color:'000000',opacity:0.12});
+  const FOOTER='ASB Labuan  ·  Supply Base Relocation Survey  ·  Internal & Confidential';
 
-  function addFooter(slide,num){
-    slide.addText(FOOTER,footerOpts);
-    slide.addText(String(num),{x:9.2,y:6.85,w:0.6,h:0.25,fontSize:9,color:C.grey,align:'right'});
+  function addFooter(sl,num){
+    sl.addText(FOOTER,{x:0.4,y:H-0.25,w:W-1.2,h:0.2,fontSize:8,color:C.grey,align:'left',italic:true});
+    sl.addText(String(num),{x:W-0.5,y:H-0.25,w:0.4,h:0.2,fontSize:8,color:C.grey,align:'right'});
   }
+  function fN(n){return Number(n).toLocaleString();}
+  function fM(v){return 'MYR '+( v>=1e6?(v/1e6).toFixed(1)+'M':fN(Math.round(v)));}
+  function uc(v){return v>=75?C.red:v>=50?C.amber:v>0?C.green:C.grey;}
 
-  function hdrBar(slide,title){
-    slide.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:0.75,fill:{color:C.navy}});
-    slide.addText(title,{x:0.3,y:0,w:9.0,h:0.75,fontSize:20,bold:true,color:C.amber,valign:'middle'});
-  }
-
-  function uc(v){return v>=75?C.red:v>=50?C.amber2:v>0?C.green:C.grey;}
-
-  // ── Collect data ───────────────────────────────────────────────
+  // ── Gather data ────────────────────────────────────────────────
   const totVal=SLOC_DEF.reduce((a,d)=>a+(d.stock?.v||0),0);
   const done=SLOC_DEF.filter(d=>slocComp(d.id)===100).length;
   const verifiedCnt=SLOC_DEF.filter(d=>slocFieldVerified(d.id)).length;
+  const surveyDate=state.lastSaved?new Date(state.lastSaved).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}):'May 2026';
 
   const slocRows=SLOC_DEF.map(d=>{
     const s=state.slocs[d.id]||{};const sys=s.storageSystems||[];
-    const fp=+(s.footprintM2||d.m2||0);
-    const floorUtil=+(s.floorOcc||0);
+    const fp=+(s.footprintM2||d.m2||0);const floorUtil=+(s.floorOcc||0);
     const capM3=sys.reduce((a,ss)=>{
       if(ss.type==='Open Floor / Pallet Stack')return a+(+ss.areaM2||0)*(+ss.stackH||0);
       const m3=slotM3(ss);const ts=totalSlots(ss);return a+(m3&&ts?m3*ts:0);},0);
@@ -2225,11 +2216,10 @@ function exportPPTX(){
         return a+(+ss.areaM2||0)*(+ss.stackH||0)*(+ss.occ/100||0)*(+ss.fill||0.5);
       const m3=slotM3(ss);const ts=totalSlots(ss);
       return a+(m3&&ts?m3*ts*(+ss.occ/100||0)*(+ss.fill||0.5):0);},0);
-    const binUtil=capM3>0?Math.min(100,Math.round((occM3/capM3)*100)):0;
+    const binUtil=capM3>0?Math.min(100,Math.round(occM3/capM3*100)):0;
     const bt=slocBestTransport(d.id);
-    const cp=slocComp(d.id);
     return{id:d.id,code:s.code||d.code,desc:s.desc||d.desc,
-      fp,floorUtil,capM3,occM3,binUtil,bt,cp,
+      fp,floorUtil,capM3,occM3,binUtil,bt,cp:slocComp(d.id),
       obs:s.observations||'',spec:s.specialReqs||''};
   });
 
@@ -2245,14 +2235,12 @@ function exportPPTX(){
   const OWNERS=["Wells-SK","Wells-SB","Assets-SK","Assets-SB","Not Assigned"];
   const ownerTotals={};OWNERS.forEach(o=>{ownerTotals[o]={c:0,sc:0,t:0,h:0,v:0};});
   SLOC_DEF.filter(d=>d.stock).forEach(d=>{
-    const s=state.slocs[d.id]||{};const owners=s.owners||[];
-    const bt=slocBestTransport(d.id);
+    const s=state.slocs[d.id]||{};const owners=s.owners||[];const bt=slocBestTransport(d.id);
     if(!owners.length||!owners.some(o=>o.name&&o.pct>0)){
       const ot=ownerTotals["Not Assigned"];ot.c+=bt.containers||0;ot.sc+=bt.special||0;
       ot.t+=bt.trailers||0;ot.h+=bt.heavy_lifts||0;ot.v+=d.stock?.v||0;return;}
     owners.forEach(o=>{if(!o.name||!o.pct)return;
-      const key=OWNERS.includes(o.name)?o.name:"Not Assigned";
-      const pct=(+o.pct||0)/100;const ot=ownerTotals[key];
+      const key=OWNERS.includes(o.name)?o.name:"Not Assigned";const pct=(+o.pct||0)/100;const ot=ownerTotals[key];
       ot.c+=Math.ceil((bt.containers||0)*pct);ot.sc+=Math.ceil((bt.special||0)*pct);
       ot.t+=Math.ceil((bt.trailers||0)*pct);ot.h+=Math.ceil((bt.heavy_lifts||0)*pct);
       ot.v+=(d.stock?.v||0)*pct;});});
@@ -2261,507 +2249,576 @@ function exportPPTX(){
   const gt=Object.values(ownerTotals).reduce((a,v)=>a+v.t,0);
   const gh=Object.values(ownerTotals).reduce((a,v)=>a+v.h,0);
 
-  // Pull observations with risk keywords
-  const riskKws=['risk','concern','pending','access','hazmat','overflow','escort','crane','unknown','unclear','missing','damaged','expired','unlabelled','TBC'];
-  const risks=slocRows.filter(r=>riskKws.some(k=>(r.obs+r.spec).toLowerCase().includes(k.toLowerCase())))
-    .map(r=>({code:r.code,desc:r.desc,obs:r.obs,spec:r.spec}));
-
-  const surveyDate=state.lastSaved?new Date(state.lastSaved).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}):'May 2026';
+  const riskKws=['risk','concern','pending','access','hazmat','overflow','escort','crane','unknown','unclear','missing','damaged','expired','unlabelled'];
+  const risks=slocRows.filter(r=>riskKws.some(k=>(r.obs+r.spec).toLowerCase().includes(k.toLowerCase())));
 
   // Storage type inventory
   const typeMap={};
   SLOC_DEF.forEach(d=>{const s=state.slocs[d.id];(s?.storageSystems||[]).forEach(ss=>{
     const t=ss.type==='Other'?(ss.customType||'Other'):ss.type;
-    if(!typeMap[t])typeMap[t]={units:0,m2:0,count:0};
-    typeMap[t].count++;
+    if(!typeMap[t])typeMap[t]={units:0,m2:0,count:0};typeMap[t].count++;
     if(ss.type==='Open Floor / Pallet Stack')typeMap[t].m2+=(+ss.areaM2||0);
-    else typeMap[t].units+=(+ss.units||0);
-  });});
+    else typeMap[t].units+=(+ss.units||0);});});
   const typeList=Object.entries(typeMap).sort((a,b)=>b[1].count-a[1].count);
+  const totalSys=SLOC_DEF.reduce((a,d)=>a+(state.slocs[d.id]?.storageSystems||[]).length,0);
 
-  // ── SLIDE 1: Cover ─────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 1 — COVER
+  // ═══════════════════════════════════════════════════════════════
   const s1=prs.addSlide();
-  s1.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.navy}});
-  s1.addShape(prs.ShapeType.rect,{x:0,y:2.8,w:10,h:2.2,fill:{color:C.charcoal}});
-  s1.addShape(prs.ShapeType.rect,{x:0,y:2.8,w:0.12,h:2.2,fill:{color:C.amber}});
-  s1.addText('ASIAN SUPPLY BASE · LABUAN',{x:0.4,y:2.95,w:9.2,h:0.4,fontSize:11,color:C.amber,bold:true,charSpacing:3});
-  s1.addText('Supply Base Relocation\nField Survey Report',{x:0.4,y:3.35,w:9.2,h:1.4,fontSize:28,bold:true,color:C.white,valign:'middle'});
-  s1.addText('Survey Date: '+surveyDate,{x:0.4,y:5.2,w:5,h:0.3,fontSize:11,color:C.grey});
-  s1.addText('Status: Internal & Confidential',{x:0.4,y:5.55,w:5,h:0.3,fontSize:11,color:C.grey});
-  s1.addText('Prepared using ASB Field Survey App',{x:0.4,y:5.9,w:5,h:0.3,fontSize:10,color:C.grey,italic:true});
+  s1.background={color:C.midnight};
+  // Left accent bar
+  s1.addShape(prs.shapes.RECTANGLE,{x:0,y:0,w:0.25,h:H,fill:{color:C.teal}});
+  // Large title
+  s1.addText('Supply Base\nRelocation Survey',{
+    x:0.6,y:0.5,w:6.5,h:2.8,fontFace:'Georgia',fontSize:40,bold:true,
+    color:C.white,valign:'middle'});
+  // Subtitle block
+  s1.addShape(prs.shapes.RECTANGLE,{x:0.6,y:3.5,w:5.5,h:0.04,fill:{color:C.teal}});
+  s1.addText('ASIAN SUPPLY BASE · LABUAN',{x:0.6,y:3.62,w:5.5,h:0.3,
+    fontFace:'Calibri',fontSize:11,color:C.teal,charSpacing:3});
+  s1.addText(surveyDate+'\nInternal & Confidential',{x:0.6,y:4.05,w:5.5,h:0.65,
+    fontFace:'Calibri',fontSize:11,color:C.grey});
+  // Right side — key stat
+  s1.addShape(prs.shapes.RECTANGLE,{x:7.3,y:1.2,w:2.3,h:2.8,
+    fill:{color:C.teal},shadow:mkShadow()});
+  s1.addText(fM(totVal),{x:7.3,y:1.5,w:2.3,h:0.9,
+    fontFace:'Calibri',fontSize:18,bold:true,color:C.white,align:'center'});
+  s1.addText('Total Stock\nValue',{x:7.3,y:2.4,w:2.3,h:0.5,
+    fontFace:'Calibri',fontSize:10,color:'A8D8EA',align:'center'});
+  s1.addShape(prs.shapes.RECTANGLE,{x:7.3,y:3.0,w:2.3,h:0.02,fill:{color:'FFFFFF',transparency:60}});
+  s1.addText(done+'/'+SLOC_DEF.length+'\nSLOCs Surveyed',{x:7.3,y:3.1,w:2.3,h:0.7,
+    fontFace:'Calibri',fontSize:10,color:'A8D8EA',align:'center'});
 
-  // ── SLIDE 2: Executive Summary ─────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 2 — EXECUTIVE SUMMARY
+  // ═══════════════════════════════════════════════════════════════
   const s2=prs.addSlide();
-  s2.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s2,'Executive Summary');
-
-  // 5 metric tiles
-  const metrics=[
-    {label:'Total Stock Value',val:'MYR '+fM(totVal),col:C.green},
-    {label:'Total Footprint',val:fN(Math.round(totFP))+' m²',col:C.blue},
-    {label:'Transport Estimate',val:gc+' ctr  '+gt+' trlr  '+gh+' lift',col:C.amber2},
-    {label:'SLOCs Surveyed',val:done+' / '+SLOC_DEF.length,col:C.teal},
-    {label:'Field Verified',val:verifiedCnt+' / '+SLOC_DEF.length,col:C.purple},
+  s2.background={color:C.offwhite};
+  s2.addText('Executive Summary',{x:0.5,y:0.2,w:9,h:0.6,
+    fontFace:'Georgia',fontSize:28,bold:true,color:C.midnight});
+  // 4 big stat cards top row
+  const stats2=[
+    {label:'Stock Value',val:fM(totVal),col:C.deep},
+    {label:'Total Footprint',val:fN(Math.round(totFP))+' m²',col:C.teal},
+    {label:'Floor Utilisation',val:floorUtil+'%',col:uc(floorUtil)},
+    {label:'Bin Utilisation',val:binUtil+'%',col:uc(binUtil)},
   ];
-  metrics.forEach((m,i)=>{
-    const x=i<3?0.2+i*3.27:1.75+(i-3)*3.27;const y=i<3?1.0:2.5;
-    s2.addShape(prs.ShapeType.rect,{x,y,w:3.0,h:1.2,fill:{color:C.white},line:{color:C.ltgrey,pt:1},shadow:{type:'outer',color:'999999',blur:3,offset:2,angle:45}});
-    s2.addText(m.label,{x:x+0.1,y:y+0.08,w:2.8,h:0.3,fontSize:9,color:C.grey,bold:true});
-    s2.addText(m.val,{x:x+0.1,y:y+0.38,w:2.8,h:0.7,fontSize:15,bold:true,color:m.col,valign:'middle'});
+  stats2.forEach((st,i)=>{
+    const x=0.4+i*2.3;
+    s2.addShape(prs.shapes.RECTANGLE,{x,y:0.95,w:2.1,h:1.3,
+      fill:{color:C.white},shadow:mkShadow(),line:{color:C.ltgrey,pt:0.5}});
+    s2.addShape(prs.shapes.RECTANGLE,{x,y:0.95,w:2.1,h:0.07,fill:{color:st.col}});
+    s2.addText(st.val,{x:x+0.1,y:1.1,w:1.9,h:0.65,fontFace:'Calibri',
+      fontSize:20,bold:true,color:st.col,valign:'middle'});
+    s2.addText(st.label,{x:x+0.1,y:1.78,w:1.9,h:0.3,fontFace:'Calibri',
+      fontSize:9,color:C.grey});
   });
-
-  // Key findings bullets
-  const topByVal=slocRows.filter(r=>r.fp>0).sort((a,b)=>b.fp-a.fp).slice(0,2);
-  const topByOcc=slocRows.filter(r=>r.floorUtil>0).sort((a,b)=>b.floorUtil-a.floorUtil)[0];
+  // Transport row
+  const stats2b=[
+    {label:'Containers',val:String(gc),col:C.deep},
+    {label:'Trailers',val:String(gt),col:C.teal},
+    {label:'Crane Lifts',val:String(gh),col:C.red},
+    {label:'Special Ctrs',val:String(gsc),col:C.amber},
+  ];
+  stats2b.forEach((st,i)=>{
+    const x=0.4+i*2.3;
+    s2.addShape(prs.shapes.RECTANGLE,{x,y:2.45,w:2.1,h:1.0,
+      fill:{color:C.white},shadow:mkShadow(),line:{color:C.ltgrey,pt:0.5}});
+    s2.addShape(prs.shapes.RECTANGLE,{x,y:2.45,w:2.1,h:0.07,fill:{color:st.col}});
+    s2.addText(st.val,{x:x+0.1,y:2.6,w:1.9,h:0.55,fontFace:'Calibri',
+      fontSize:26,bold:true,color:st.col,align:'center',valign:'middle'});
+    s2.addText(st.label,{x:x+0.1,y:3.18,w:1.9,h:0.22,fontFace:'Calibri',
+      fontSize:9,color:C.grey,align:'center'});
+  });
+  // Key findings
   const findings=[
-    'Survey covers '+SLOC_DEF.length+' SLOCs with total footprint of '+fN(Math.round(totFP))+' m² across the Asian Supply Base, Labuan.',
-    'Overall floor utilisation stands at '+floorUtil+'% and bin (volumetric) utilisation at '+binUtil+'% across field-measured locations.',
-    'Transport requirement estimated at '+gc+' × 20ft containers, '+gt+' trailers and '+gh+' crane lifts. Add 15% buffer for procurement.',
-    verifiedCnt+' of '+SLOC_DEF.length+' SLOCs are field-verified. Remaining '+(SLOC_DEF.length-verifiedCnt)+' use MB52 auto-classification as baseline.',
-    risks.length>0?risks.length+' SLOCs flagged with observations requiring follow-up action before relocation.':'No critical risk observations flagged during survey.',
+    verifiedCnt+' of '+SLOC_DEF.length+' SLOCs field-verified. Remainder estimated from MB52 auto-classification.',
+    'Overall floor utilisation '+floorUtil+'% and bin utilisation '+binUtil+'% across measured locations.',
+    'Transport: '+gc+' containers, '+gt+' trailers, '+gh+' crane lifts. Add 15% buffer for procurement.',
+    risks.length>0?risks.length+' SLOCs have observations flagged for follow-up before relocation.':'No critical risk observations flagged during survey.',
   ];
   findings.forEach((f,i)=>{
-    s2.addText('•  '+f,{x:0.3,y:3.9+i*0.44,w:9.4,h:0.42,fontSize:10,color:C.charcoal,valign:'middle'});
+    s2.addText([{text:'',options:{bullet:true}},{text:f}],
+      {x:0.5,y:3.6+i*0.42,w:9,h:0.4,fontFace:'Calibri',fontSize:11,color:C.charcoal});
   });
+  s2.addNotes('Talk through the 8 key metrics. Emphasise that '+verifiedCnt+' SLOCs are field-verified — the rest are estimates from SAP MB52 data. Transport numbers require 15% buffer before RFQ.');
   addFooter(s2,2);
 
-  // ── SLIDE 3: Survey Scope & Status ─────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 3 — SURVEY STATUS
+  // ═══════════════════════════════════════════════════════════════
   const s3=prs.addSlide();
-  s3.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s3,'Survey Scope & Status');
+  s3.background={color:C.offwhite};
+  s3.addText('Survey Scope & Status',{x:0.5,y:0.2,w:8,h:0.6,
+    fontFace:'Georgia',fontSize:28,bold:true,color:C.midnight});
+  // Progress bar
+  const progPct=Math.round(done/SLOC_DEF.length*100);
+  s3.addShape(prs.shapes.RECTANGLE,{x:0.5,y:0.88,w:9,h:0.22,fill:{color:C.ltgrey}});
+  s3.addShape(prs.shapes.RECTANGLE,{x:0.5,y:0.88,w:9*progPct/100,h:0.22,fill:{color:C.green}});
+  s3.addText(progPct+'% complete  ('+done+' of '+SLOC_DEF.length+' SLOCs done)',
+    {x:0.5,y:1.12,w:9,h:0.2,fontFace:'Calibri',fontSize:9,color:C.grey});
 
   const tblHdr=[
-    {text:'SLOC',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9}},
-    {text:'Description',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9}},
-    {text:'Facility',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9}},
-    {text:'m²',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'right'}},
-    {text:'Status',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'center'}},
-    {text:'Source',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'center'}},
+    [{text:'SLOC',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,margin:3}}],
+    [{text:'Description',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,margin:3}}],
+    [{text:'Type',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,margin:3}}],
+    [{text:'m²',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,align:'right',margin:3}}],
+    [{text:'Status',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,align:'center',margin:3}}],
+    [{text:'Source',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,align:'center',margin:3}}],
   ];
-  const tblRows=slocRows.slice(0,18).map((r,i)=>{
-    const cp=r.cp;
+  const tblRows3=slocRows.slice(0,16).map((r,i)=>{
+    const cp=r.cp;const bg=i%2===0?C.white:'EEF4FB';
     const status=cp===100?'Done':cp>0?cp+'%':'New';
-    const statusCol=cp===100?C.green:cp>0?C.amber2:C.grey;
+    const statusCol=cp===100?C.green:cp>0?C.amber:C.grey;
     const src=slocFieldVerified(r.id)?'Field':'MB52';
-    const bg=i%2===0?C.white:C.rowalt;
     return[
-      {text:r.code,options:{fontSize:9,color:C.charcoal,fill:{color:bg},bold:true}},
-      {text:r.desc,options:{fontSize:9,color:C.charcoal,fill:{color:bg}}},
-      {text:(state.slocs[r.id]?.facilityType||'—').slice(0,18),options:{fontSize:8,color:C.grey,fill:{color:bg}}},
-      {text:r.fp?fN(r.fp):'—',options:{fontSize:9,color:C.charcoal,fill:{color:bg},align:'right'}},
-      {text:status,options:{fontSize:9,color:statusCol,fill:{color:bg},align:'center',bold:cp===100}},
-      {text:src,options:{fontSize:9,color:src==='Field'?C.green:C.blue,fill:{color:bg},align:'center'}},
+      {text:r.code,options:{fontSize:8,bold:true,color:C.charcoal,fill:{color:bg},margin:3}},
+      {text:r.desc.slice(0,28),options:{fontSize:8,color:C.charcoal,fill:{color:bg},margin:3}},
+      {text:(state.slocs[r.id]?.facilityType||'—').replace(' Warehouse','').replace('Closed ','').slice(0,14),
+        options:{fontSize:8,color:C.grey,fill:{color:bg},margin:3}},
+      {text:r.fp?fN(r.fp):'—',options:{fontSize:8,color:C.charcoal,fill:{color:bg},align:'right',margin:3}},
+      {text:status,options:{fontSize:8,bold:cp===100,color:statusCol,fill:{color:bg},align:'center',margin:3}},
+      {text:src,options:{fontSize:8,color:src==='Field'?C.green:C.blue,fill:{color:bg},align:'center',bold:src==='Field',margin:3}},
     ];
   });
-  s3.addTable([tblHdr,...tblRows],{x:0.2,y:0.9,w:9.6,rowH:0.28,border:{color:C.ltgrey,pt:0.5}});
-  s3.addText('F = Field verified  ·  M = MB52 baseline  ·  Tap SLOC code in app for full detail',
-    {x:0.2,y:6.75,w:9.6,h:0.2,fontSize:8,color:C.grey,italic:true});
-  s3.addNotes('This slide shows the survey completion status for all '+SLOC_DEF.length+' SLOCs. '+done+' SLOCs are fully surveyed. '+verifiedCnt+' have field-verified storage data. The remaining '+(SLOC_DEF.length-verifiedCnt)+' SLOCs use MB52 stock data as a transport baseline. Ops team should prioritise completing any SLOCs still showing New or partial completion before finalising transport estimates.');
+  s3.addTable([tblHdr.map(h=>h[0]),...tblRows3],
+    {x:0.4,y:1.38,w:9.2,rowH:0.22,border:{pt:0.5,color:C.ltgrey},fontFace:'Calibri'});
+  s3.addText('Field = storage data measured on site  ·  MB52 = SAP stock data used as baseline',
+    {x:0.4,y:5.3,w:9.2,h:0.18,fontFace:'Calibri',fontSize:8,color:C.grey,italic:true});
+  s3.addNotes('Walk through completion status. Highlight any SLOCs still showing New or partial completion that need follow-up. '+verifiedCnt+' SLOCs have full field measurements. The remaining '+(SLOC_DEF.length-verifiedCnt)+' use MB52 classification for transport estimates — lower confidence.');
   addFooter(s3,3);
 
-  // ── SLIDE 4: Floor Space & Utilisation ─────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 4 — FLOOR SPACE (chart left, table right)
+  // ═══════════════════════════════════════════════════════════════
   const s4=prs.addSlide();
-  s4.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s4,'Floor Space & Utilisation');
+  s4.background={color:C.offwhite};
+  s4.addText('Floor Space & Utilisation',{x:0.5,y:0.15,w:9,h:0.5,
+    fontFace:'Georgia',fontSize:26,bold:true,color:C.midnight});
 
-  // Summary boxes
-  [{label:'Total Footprint',val:fN(Math.round(totFP))+' m²',col:C.navy,x:0.2},
-   {label:'Floor Used',val:fN(Math.round(totFloorUsed))+' m²',col:C.blue,x:3.45},
-   {label:'Floor Utilisation',val:floorUtil+'%',col:uc(floorUtil),x:6.7},
-  ].forEach(b=>{
-    s4.addShape(prs.ShapeType.rect,{x:b.x,y:0.85,w:3.0,h:0.85,fill:{color:b.col}});
-    s4.addText(b.label,{x:b.x+0.1,y:0.85,w:2.8,h:0.3,fontSize:9,color:'D4DCE6',valign:'top'});
-    s4.addText(b.val,{x:b.x+0.1,y:1.05,w:2.8,h:0.55,fontSize:18,bold:true,color:C.white,valign:'middle'});
+  // Left: bar chart of floor space by SLOC
+  const floorChartSlocs=slocRows.filter(r=>r.fp>0).sort((a,b)=>b.fp-a.fp).slice(0,10);
+  s4.addChart(prs.charts.BAR,[
+    {name:'Footprint m²',labels:floorChartSlocs.map(r=>r.code),values:floorChartSlocs.map(r=>r.fp)},
+    {name:'Used m²',labels:floorChartSlocs.map(r=>r.code),values:floorChartSlocs.map(r=>Math.round(r.fp*r.floorUtil/100))},
+  ],{
+    x:0.3,y:0.75,w:5.2,h:4.4,barDir:'col',barGrouping:'clustered',
+    chartColors:[C.ltgrey.replace('E2E8F0','B8CCE4'),C.deep],
+    chartArea:{fill:{color:C.offwhite},roundedCorners:false},
+    catAxisLabelColor:C.grey,valAxisLabelColor:C.grey,
+    valGridLine:{color:'E8EEF4',size:0.5},catGridLine:{style:'none'},
+    showLegend:true,legendPos:'b',legendFontSize:9,
+    title:'Floor Footprint m² (top SLOCs)',showTitle:true,titleFontSize:10,
+    titleColor:C.charcoal,
   });
 
-  const floorRows=slocRows.filter(r=>r.fp>0).sort((a,b)=>b.fp-a.fp);
-  const fHdr=[
-    {text:'SLOC',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8}},
-    {text:'Description',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8}},
-    {text:'Footprint m²',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'right'}},
-    {text:'Occ%',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'right'}},
-    {text:'Used m²',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'right'}},
-    {text:'Free m²',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'right'}},
-    {text:'Util%',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'center'}},
+  // Right: summary stats
+  const statBoxes4=[
+    {label:'Total Footprint',val:fN(Math.round(totFP))+' m²',col:C.deep},
+    {label:'Floor Used',val:fN(Math.round(totFloorUsed))+' m²',col:C.teal},
+    {label:'Floor Utilisation',val:floorUtil+'%',col:uc(floorUtil)},
   ];
-  const fRows=floorRows.slice(0,14).map((r,i)=>{
-    const used=Math.round(r.fp*(r.floorUtil/100));
-    const free=r.fp-used;
-    const bg=i%2===0?C.white:C.rowalt;
-    const uCol=uc(r.floorUtil);
-    return[
-      {text:r.code,options:{fontSize:8,bold:true,color:C.charcoal,fill:{color:bg}}},
-      {text:r.desc.slice(0,24),options:{fontSize:8,color:C.grey,fill:{color:bg}}},
-      {text:fN(r.fp),options:{fontSize:8,color:C.charcoal,fill:{color:bg},align:'right'}},
-      {text:r.floorUtil>0?r.floorUtil+'%':'—',options:{fontSize:8,color:C.grey,fill:{color:bg},align:'right'}},
-      {text:r.floorUtil>0?fN(used):'—',options:{fontSize:8,color:C.blue,fill:{color:bg},align:'right'}},
-      {text:r.floorUtil>0?fN(free):'—',options:{fontSize:8,color:C.grey,fill:{color:bg},align:'right'}},
-      {text:r.floorUtil>0?r.floorUtil+'%':'—',options:{fontSize:8,bold:r.floorUtil>=75,color:uCol,fill:{color:bg},align:'center'}},
-    ];
+  statBoxes4.forEach((b,i)=>{
+    s4.addShape(prs.shapes.RECTANGLE,{x:5.8,y:0.75+i*1.42,w:3.9,h:1.22,
+      fill:{color:C.white},shadow:mkShadow(),line:{color:C.ltgrey,pt:0.5}});
+    s4.addShape(prs.shapes.RECTANGLE,{x:5.8,y:0.75+i*1.42,w:0.08,h:1.22,fill:{color:b.col}});
+    s4.addText(b.val,{x:6.05,y:0.88+i*1.42,w:3.5,h:0.65,
+      fontFace:'Calibri',fontSize:24,bold:true,color:b.col,valign:'middle'});
+    s4.addText(b.label,{x:6.05,y:1.55+i*1.42,w:3.5,h:0.25,
+      fontFace:'Calibri',fontSize:9,color:C.grey});
   });
-  // Total row
-  fRows.push([
-    {text:'TOTAL',options:{fontSize:8,bold:true,color:C.white,fill:{color:C.navy}}},
-    {text:'All SLOCs',options:{fontSize:8,color:C.white,fill:{color:C.navy}}},
-    {text:fN(Math.round(totFP)),options:{fontSize:8,bold:true,color:C.white,fill:{color:C.navy},align:'right'}},
-    {text:'',options:{fill:{color:C.navy}}},
-    {text:fN(Math.round(totFloorUsed)),options:{fontSize:8,bold:true,color:C.amber,fill:{color:C.navy},align:'right'}},
-    {text:fN(Math.round(totFP-totFloorUsed)),options:{fontSize:8,color:C.white,fill:{color:C.navy},align:'right'}},
-    {text:floorUtil+'%',options:{fontSize:8,bold:true,color:C.amber,fill:{color:C.navy},align:'center'}},
-  ]);
-  s4.addTable([fHdr,...fRows],{x:0.2,y:1.85,w:9.6,rowH:0.26,border:{color:C.ltgrey,pt:0.5}});
-  s4.addText('Util% based on floor occupancy slider per SLOC  ·  Excludes SLOCs with no data entered',
-    {x:0.2,y:7.05,w:9.6,h:0.2,fontSize:8,color:C.grey,italic:true});
-  const highUtil=floorRows.filter(r=>r.floorUtil>=75).map(r=>r.code+' ('+r.floorUtil+'%)').join(', ');
-  const lowUtil=floorRows.filter(r=>r.floorUtil>0&&r.floorUtil<30).map(r=>r.code+' ('+r.floorUtil+'%)').join(', ');
-  s4.addNotes('Total supply base footprint is '+fN(Math.round(totFP))+' m² across '+floorRows.length+' measured SLOCs. Overall floor utilisation is '+floorUtil+'% based on visual occupancy estimates from the field survey.\n\n'+(highUtil?'High utilisation SLOCs (≥75%): '+highUtil+'. These locations are congested and relocation planning should prioritise clearing them first.\n\n':'')+( lowUtil?'Low utilisation SLOCs (<30%): '+lowUtil+'. These may offer consolidation opportunities before relocation.\n\n':'')+'Note: Utilisation is based on surveyor visual estimate of floor occupancy. It represents the percentage of floor area with materials present, not volumetric efficiency.');
+  s4.addText('Utilisation % = floor occupancy slider per SLOC (visual field estimate). Excludes SLOCs with no data.',
+    {x:0.3,y:5.33,w:9.4,h:0.18,fontFace:'Calibri',fontSize:8,color:C.grey,italic:true});
+  s4.addNotes('Total footprint is '+fN(Math.round(totFP))+' m² across all SLOCs. Floor utilisation of '+floorUtil+'% is based on surveyor visual estimates. '+(slocRows.filter(r=>r.floorUtil>=75).length>0?'High utilisation SLOCs: '+slocRows.filter(r=>r.floorUtil>=75).map(r=>r.code+' ('+r.floorUtil+'%)').join(', ')+'.':'')+' These should be prioritised in relocation sequencing.');
   addFooter(s4,4);
 
-  // ── SLIDE 5: Storage Systems Inventory ─────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 5 — STORAGE INVENTORY
+  // ═══════════════════════════════════════════════════════════════
   const s5=prs.addSlide();
-  s5.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s5,'Storage Systems Inventory');
+  s5.background={color:C.offwhite};
+  s5.addText('Storage Systems Inventory',{x:0.5,y:0.15,w:9,h:0.5,
+    fontFace:'Georgia',fontSize:26,bold:true,color:C.midnight});
 
-  const totalSys=SLOC_DEF.reduce((a,d)=>a+(state.slocs[d.id]?.storageSystems||[]).length,0);
-  s5.addShape(prs.ShapeType.rect,{x:0.2,y:0.85,w:4.5,h:0.85,fill:{color:C.navy}});
-  s5.addText('Total Systems',{x:0.3,y:0.85,w:4.3,h:0.3,fontSize:9,color:'D4DCE6'});
-  s5.addText(totalSys+' across '+typeList.length+' types',{x:0.3,y:1.1,w:4.3,h:0.5,fontSize:18,bold:true,color:C.amber});
-  s5.addShape(prs.ShapeType.rect,{x:5.0,y:0.85,w:4.8,h:0.85,fill:{color:C.teal}});
-  const totalOpenM2=Object.entries(typeMap).filter(([t])=>t==='Open Floor / Pallet Stack').reduce((a,[,g])=>a+g.m2,0);
-  const totalRackUnits=Object.entries(typeMap).filter(([t])=>t!=='Open Floor / Pallet Stack').reduce((a,[,g])=>a+g.units,0);
-  s5.addText('Rack Units: '+fN(totalRackUnits)+'   Open Floor: '+fN(Math.round(totalOpenM2))+' m²',{x:5.1,y:0.85,w:4.6,h:0.85,fontSize:13,bold:true,color:C.white,valign:'middle'});
-
+  // Left column: type table
   const invHdr=[
-    {text:'Storage Type',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9}},
-    {text:'Systems',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'center'}},
-    {text:'Units / Area',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'right'}},
-    {text:'Qty Label',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'left'}},
+    {text:'Storage Type',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:9,margin:4}},
+    {text:'Systems',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:9,align:'center',margin:4}},
+    {text:'Qty',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:9,align:'right',margin:4}},
+    {text:'Unit',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:9,margin:4}},
   ];
-  const invRows=typeList.map(([t,g],i)=>{
+  const invRows5=typeList.map(([t,g],i)=>{
     const isOF=t==='Open Floor / Pallet Stack';
-    const qty=isOF?fN(Math.round(g.m2)):fN(g.units);
-    const unit=isOF?'m²':'units';
-    const bg=i%2===0?C.white:C.rowalt;
+    const bg=i%2===0?C.white:'EEF4FB';
     return[
-      {text:t,options:{fontSize:9,bold:true,color:C.charcoal,fill:{color:bg}}},
-      {text:String(g.count),options:{fontSize:9,color:C.grey,fill:{color:bg},align:'center'}},
-      {text:qty,options:{fontSize:11,bold:true,color:isOF?C.purple:C.amber2,fill:{color:bg},align:'right'}},
-      {text:unit,options:{fontSize:9,color:C.grey,fill:{color:bg}}},
+      {text:t.replace(' / Pallet Stack',''),options:{fontSize:9,bold:true,color:C.charcoal,fill:{color:bg},margin:4}},
+      {text:String(g.count),options:{fontSize:9,color:C.grey,fill:{color:bg},align:'center',margin:4}},
+      {text:isOF?fN(Math.round(g.m2)):fN(g.units),options:{fontSize:11,bold:true,color:isOF?C.purple:C.deep,fill:{color:bg},align:'right',margin:4}},
+      {text:isOF?'m²':'units',options:{fontSize:9,color:C.grey,fill:{color:bg},margin:4}},
     ];
   });
-  s5.addTable([invHdr,...invRows],{x:0.2,y:1.85,w:9.6,rowH:0.34,border:{color:C.ltgrey,pt:0.5}});
-  s5.addNotes('This slide summarises the physical storage infrastructure at ASB Labuan. A total of '+totalSys+' storage systems across '+typeList.length+' types have been logged during the field survey.\n\nRack units ('+fN(totalRackUnits)+' total) will require procurement decisions: relocate vs replace based on condition assessment. Indicative cost: MYR 2,000-5,000 per rack unit plus 20% installation.\n\nOpen floor area ('+fN(Math.round(totalOpenM2))+' m²) requires hardstanding at the new location. Indicative cost: MYR 80-150 per m² for new concrete hardstanding.\n\nNote: Condition assessment not included in this survey. Recommend separate physical inspection before finalising capex estimates.');
+  s5.addTable([invHdr,...invRows5],{x:0.3,y:0.75,w:5.5,rowH:0.38,
+    border:{pt:0.5,color:C.ltgrey},fontFace:'Calibri'});
+
+  // Right column: doughnut chart of system count by type
+  s5.addChart(prs.charts.DOUGHNUT,
+    [{name:'Systems',labels:typeList.map(([t])=>t.split('/')[0].trim()),values:typeList.map(([,g])=>g.count)}],
+    {x:6.0,y:0.7,w:3.7,h:3.2,
+      chartColors:[C.deep,C.teal,'2563EB',C.purple,'D97706','16A34A'],
+      showLegend:true,legendPos:'b',legendFontSize:8,
+      showPercent:true,dataLabelFontSize:9,
+      chartArea:{fill:{color:C.offwhite}},
+      title:'Mix by Count',showTitle:true,titleFontSize:10,titleColor:C.charcoal,
+    });
+
+  // Bottom stat bar
+  const totalRackUnits=typeList.filter(([t])=>t!=='Open Floor / Pallet Stack').reduce((a,[,g])=>a+g.units,0);
+  const totalOpenM2=typeMap['Open Floor / Pallet Stack']?.m2||0;
+  [
+    {label:'Total Storage Systems',val:String(totalSys),col:C.deep},
+    {label:'Total Rack Units',val:fN(totalRackUnits),col:C.teal},
+    {label:'Open Floor Area',val:fN(Math.round(totalOpenM2))+' m²',col:C.purple},
+  ].forEach((b,i)=>{
+    s5.addShape(prs.shapes.RECTANGLE,{x:0.3+i*3.2,y:4.15,w:3.0,h:0.95,
+      fill:{color:b.col},shadow:mkShadow()});
+    s5.addText(b.val,{x:0.4+i*3.2,y:4.2,w:2.8,h:0.55,
+      fontFace:'Calibri',fontSize:20,bold:true,color:C.white,valign:'middle'});
+    s5.addText(b.label,{x:0.4+i*3.2,y:4.75,w:2.8,h:0.22,
+      fontFace:'Calibri',fontSize:8,color:'CADCFC'});
+  });
+  s5.addNotes('Total of '+totalSys+' storage systems across '+typeList.length+' types. Rack units ('+fN(totalRackUnits)+') require condition assessment — decision: relocate vs replace. Open floor area ('+fN(Math.round(totalOpenM2))+' m²) requires hardstanding at new location at approximately MYR 80-150 per m². Installation costs typically add 15-25% on top of rack purchase price.');
   addFooter(s5,5);
 
-  // ── SLIDE 6: Storage Capacity & Utilisation ────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 6 — STORAGE CAPACITY & UTILISATION
+  // ═══════════════════════════════════════════════════════════════
   const s6=prs.addSlide();
-  s6.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s6,'Storage Capacity & Utilisation (Volumetric)');
+  s6.background={color:C.offwhite};
+  s6.addText('Storage Capacity & Utilisation',{x:0.5,y:0.15,w:9,h:0.5,
+    fontFace:'Georgia',fontSize:26,bold:true,color:C.midnight});
 
-  [{label:'Total Capacity',val:fN(Math.round(totCapAll))+' m³',col:C.navy,x:0.2},
-   {label:'Occupied Volume',val:fN(Math.round(totOccAll))+' m³',col:C.blue,x:3.45},
-   {label:'Bin Utilisation',val:binUtil+'%',col:uc(binUtil),x:6.7},
-  ].forEach(b=>{
-    s6.addShape(prs.ShapeType.rect,{x:b.x,y:0.85,w:3.0,h:0.85,fill:{color:b.col}});
-    s6.addText(b.label,{x:b.x+0.1,y:0.85,w:2.8,h:0.3,fontSize:9,color:'D4DCE6',valign:'top'});
-    s6.addText(b.val,{x:b.x+0.1,y:1.05,w:2.8,h:0.55,fontSize:18,bold:true,color:C.white,valign:'middle'});
+  const capSlocs=slocRows.filter(r=>r.capM3>0).sort((a,b)=>b.capM3-a.capM3).slice(0,8);
+  s6.addChart(prs.charts.BAR,[
+    {name:'Total Capacity m³',labels:capSlocs.map(r=>r.code),values:capSlocs.map(r=>Math.round(r.capM3))},
+    {name:'Occupied m³',labels:capSlocs.map(r=>r.code),values:capSlocs.map(r=>Math.round(r.occM3))},
+  ],{
+    x:0.3,y:0.75,w:6.0,h:4.4,barDir:'bar',barGrouping:'clustered',
+    chartColors:['B8CCE4',C.teal],
+    chartArea:{fill:{color:C.offwhite}},
+    catAxisLabelColor:C.grey,valAxisLabelColor:C.grey,
+    valGridLine:{color:'E8EEF4',size:0.5},catGridLine:{style:'none'},
+    showLegend:true,legendPos:'b',legendFontSize:9,
+    title:'Capacity vs Occupied m³ (top SLOCs)',showTitle:true,titleFontSize:10,titleColor:C.charcoal,
   });
 
-  const capRows2=slocRows.filter(r=>r.capM3>0).sort((a,b)=>b.capM3-a.capM3);
-  const cHdr=[
-    {text:'SLOC',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8}},
-    {text:'Description',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8}},
-    {text:'Cap m³',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'right'}},
-    {text:'Occ m³',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'right'}},
-    {text:'Bin Util%',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'center'}},
-  ];
-  const cRows=capRows2.slice(0,14).map((r,i)=>{
-    const bg=i%2===0?C.white:C.rowalt;
-    return[
-      {text:r.code,options:{fontSize:8,bold:true,color:C.charcoal,fill:{color:bg}}},
-      {text:r.desc.slice(0,28),options:{fontSize:8,color:C.grey,fill:{color:bg}}},
-      {text:fN(Math.round(r.capM3)),options:{fontSize:8,color:C.charcoal,fill:{color:bg},align:'right'}},
-      {text:fN(Math.round(r.occM3)),options:{fontSize:8,color:C.blue,fill:{color:bg},align:'right',bold:true}},
-      {text:r.binUtil>0?r.binUtil+'%':'—',options:{fontSize:8,color:uc(r.binUtil),fill:{color:bg},align:'center',bold:r.binUtil>=75}},
-    ];
+  [
+    {label:'Total Capacity',val:fN(Math.round(totCapAll))+' m³',col:C.deep},
+    {label:'Occupied Volume',val:fN(Math.round(totOccAll))+' m³',col:C.teal},
+    {label:'Bin Utilisation',val:binUtil+'%',col:uc(binUtil)},
+  ].forEach((b,i)=>{
+    s6.addShape(prs.shapes.RECTANGLE,{x:6.55,y:0.78+i*1.42,w:3.2,h:1.22,
+      fill:{color:C.white},shadow:mkShadow(),line:{color:C.ltgrey,pt:0.5}});
+    s6.addShape(prs.shapes.RECTANGLE,{x:6.55,y:0.78+i*1.42,w:0.07,h:1.22,fill:{color:b.col}});
+    s6.addText(b.val,{x:6.75,y:0.9+i*1.42,w:2.9,h:0.65,
+      fontFace:'Calibri',fontSize:22,bold:true,color:b.col,valign:'middle'});
+    s6.addText(b.label,{x:6.75,y:1.58+i*1.42,w:2.9,h:0.25,fontFace:'Calibri',fontSize:9,color:C.grey});
   });
-  cRows.push([
-    {text:'TOTAL',options:{fontSize:8,bold:true,color:C.white,fill:{color:C.navy}}},
-    {text:'All field-measured',options:{fontSize:8,color:C.white,fill:{color:C.navy}}},
-    {text:fN(Math.round(totCapAll)),options:{fontSize:8,bold:true,color:C.white,fill:{color:C.navy},align:'right'}},
-    {text:fN(Math.round(totOccAll)),options:{fontSize:8,bold:true,color:C.amber,fill:{color:C.navy},align:'right'}},
-    {text:binUtil+'%',options:{fontSize:8,bold:true,color:C.amber,fill:{color:C.navy},align:'center'}},
-  ]);
-  s6.addTable([cHdr,...cRows],{x:0.2,y:1.85,w:9.6,rowH:0.27,border:{color:C.ltgrey,pt:0.5}});
-  s6.addText('Bin utilisation = slot occupancy % × average fill factor. Excludes SLOCs with no storage systems entered.',
-    {x:0.2,y:7.05,w:9.6,h:0.2,fontSize:8,color:C.grey,italic:true});
-  const highBin=capRows2.filter(r=>r.binUtil>=75).map(r=>r.code+' ('+r.binUtil+'%)').join(', ');
-  s6.addNotes('Volumetric utilisation measures how efficiently the storage systems are being used. Total capacity across field-measured SLOCs is '+fN(Math.round(totCapAll))+' m³ with '+fN(Math.round(totOccAll))+' m³ currently occupied.\n\nMethodology: Bin Utilisation = Slot Occupancy% × Fill Factor%. Slot occupancy is the proportion of rack slots containing material. Fill factor is the average volume within each occupied slot that is used (e.g. 75% = slots are about three-quarters full).\n\n'+(highBin?'High utilisation locations (≥75%): '+highBin+'. These are effectively full and may have overflow conditions.\n\n':'')+'Important: This is the occupied volume that needs to be physically moved. It directly drives the transport estimate on subsequent slides.');
+  s6.addText('Bin utilisation = slot occupancy% × fill factor. Occupied volume is what physically needs to be moved.',
+    {x:0.3,y:5.33,w:9.4,h:0.18,fontFace:'Calibri',fontSize:8,color:C.grey,italic:true});
+  s6.addNotes('Total storage capacity across all field-measured SLOCs is '+fN(Math.round(totCapAll))+' m³. Of this, '+fN(Math.round(totOccAll))+' m³ is currently occupied — this is the volume that needs to be physically relocated.\n\nBin utilisation of '+binUtil+'% means the storage systems are at about '+binUtil+'% of their total volumetric capacity. This is the key input to the transport estimate.');
   addFooter(s6,6);
 
-  // ── SLIDE 7: MB52 Stock Value ───────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 7 — STOCK VALUE
+  // ═══════════════════════════════════════════════════════════════
   const s7=prs.addSlide();
-  s7.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s7,'MB52 Stock Value');
+  s7.background={color:C.midnight};
+  // Large value display
+  s7.addText('MB52 Stock Value',{x:0.6,y:0.2,w:9,h:0.5,
+    fontFace:'Georgia',fontSize:26,bold:true,color:C.white});
+  s7.addText(fM(totVal),{x:0.6,y:0.8,w:9,h:1.2,
+    fontFace:'Georgia',fontSize:52,bold:true,color:C.teal,valign:'middle'});
+  s7.addText('Unrestricted stock  ·  SAP MB52  ·  23 May 2026',{
+    x:0.6,y:1.95,w:8,h:0.3,fontFace:'Calibri',fontSize:11,color:C.grey});
 
-  s7.addShape(prs.ShapeType.rect,{x:0.2,y:0.85,w:9.6,h:1.0,fill:{color:C.navy}});
-  s7.addText('Total Stock Value (MB52 as at 23 May 2026)',{x:0.4,y:0.85,w:6,h:0.35,fontSize:10,color:C.grey});
-  s7.addText(fM(totVal),{x:0.4,y:1.15,w:9,h:0.6,fontSize:26,bold:true,color:C.amber,valign:'middle'});
-
-  const byVal=slocRows.filter(r=>{const d=SLOC_DEF.find(x=>x.id===r.id);return d?.stock?.v>0;})
-    .map(r=>{const d=SLOC_DEF.find(x=>x.id===r.id);return{...r,val:d.stock.v,items:d.stock.i};})
+  // Pie chart right side
+  const byVal=slocRows.filter(r=>{const d=SLOC_DEF.find(x=>x.id===r.id);return(d?.stock?.v||0)>0;})
+    .map(r=>{const d=SLOC_DEF.find(x=>x.id===r.id);return{...r,val:d.stock.v};})
     .sort((a,b)=>b.val-a.val);
+  const top6=byVal.slice(0,6);
+  const othersVal=byVal.slice(6).reduce((a,r)=>a+r.val,0);
+  const pieLabels=top6.map(r=>r.code);
+  const pieVals=top6.map(r=>r.val);
+  if(othersVal>0){pieLabels.push('Others');pieVals.push(othersVal);}
 
-  const vHdr=[
-    {text:'SLOC',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9}},
-    {text:'Description',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9}},
-    {text:'Items',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'right'}},
-    {text:'Value MYR',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'right'}},
-    {text:'% of Total',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'right'}},
-  ];
-  const vRows=byVal.slice(0,12).map((r,i)=>{
-    const pct=(r.val/totVal*100).toFixed(1)+'%';
-    const bg=i%2===0?C.white:C.rowalt;
-    return[
-      {text:r.code,options:{fontSize:9,bold:true,color:C.charcoal,fill:{color:bg}}},
-      {text:r.desc.slice(0,32),options:{fontSize:9,color:C.grey,fill:{color:bg}}},
-      {text:fN(r.items),options:{fontSize:9,color:C.charcoal,fill:{color:bg},align:'right'}},
-      {text:'MYR '+fN(Math.round(r.val)),options:{fontSize:9,bold:true,color:C.green,fill:{color:bg},align:'right'}},
-      {text:pct,options:{fontSize:9,color:C.grey,fill:{color:bg},align:'right'}},
-    ];
+  s7.addChart(prs.charts.PIE,[{name:'Value',labels:pieLabels,values:pieVals}],{
+    x:5.5,y:2.2,w:4.2,h:3.0,
+    chartColors:[C.teal,'1C7293','028090','00A896','02C39A','065A82','64748B'],
+    chartArea:{fill:{color:C.midnight}},legendFontColor:C.white,
+    showLegend:true,legendPos:'r',legendFontSize:8,
+    showPercent:true,dataLabelFontSize:8,
+    dataLabelColor:C.white,
   });
-  vRows.push([
-    {text:'TOTAL',options:{fontSize:9,bold:true,color:C.white,fill:{color:C.navy}}},
-    {text:'All SLOCs',options:{fontSize:9,color:C.white,fill:{color:C.navy}}},
-    {text:fN(SLOC_DEF.reduce((a,d)=>a+(d.stock?.i||0),0)),options:{fontSize:9,bold:true,color:C.white,fill:{color:C.navy},align:'right'}},
-    {text:'MYR '+fN(Math.round(totVal)),options:{fontSize:9,bold:true,color:C.amber,fill:{color:C.navy},align:'right'}},
-    {text:'100%',options:{fontSize:9,bold:true,color:C.amber,fill:{color:C.navy},align:'right'}},
-  ]);
-  s7.addTable([vHdr,...vRows],{x:0.2,y:2.0,w:9.6,rowH:0.3,border:{color:C.ltgrey,pt:0.5}});
-  s7.addNotes('Stock value is sourced from SAP MB52 report as at 23 May 2026. Total unrestricted stock value is '+fM(totVal)+'.\n\nTop SLOC by value: '+(byVal[0]?.code||'N/A')+' ('+byVal[0]?.desc+') at MYR '+fN(Math.round(byVal[0]?.val||0))+', representing '+(byVal[0]?.val/totVal*100).toFixed(1)+'% of total stock value.\n\nNote: This represents book value of unrestricted stock in SAP. Physical verification during survey may identify discrepancies. Grey stock (unregistered materials) is not captured in this figure and should be assessed separately.');
+
+  // Top SLOCs list left
+  byVal.slice(0,6).forEach((r,i)=>{
+    s7.addShape(prs.shapes.RECTANGLE,{x:0.5,y:2.3+i*0.47,w:4.8,h:0.4,
+      fill:{color:i%2===0?'1A3550':'152A40'}});
+    s7.addText(r.code,{x:0.6,y:2.32+i*0.47,w:0.8,h:0.35,fontFace:'Calibri',fontSize:9,bold:true,color:C.teal,valign:'middle'});
+    s7.addText(r.desc.slice(0,22),{x:1.4,y:2.32+i*0.47,w:2.2,h:0.35,fontFace:'Calibri',fontSize:9,color:C.white,valign:'middle'});
+    s7.addText('MYR '+fN(Math.round(r.val)),{x:3.6,y:2.32+i*0.47,w:1.6,h:0.35,fontFace:'Calibri',fontSize:9,bold:true,color:C.green,align:'right',valign:'middle'});
+  });
+  s7.addNotes('Total unrestricted stock value per SAP MB52 is '+fM(totVal)+'. Top SLOC by value is '+byVal[0]?.code+' ('+byVal[0]?.desc+') at '+fM(byVal[0]?.val||0)+', representing '+(byVal[0]?.val/totVal*100).toFixed(1)+'% of total.\n\nNote: Grey/unregistered stock not included. Physical survey may reveal discrepancies with SAP balances.');
   addFooter(s7,7);
 
-  // ── SLIDE 8: Transport Estimate Overview ───────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 8 — TRANSPORT OVERVIEW
+  // ═══════════════════════════════════════════════════════════════
   const s8=prs.addSlide();
-  s8.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.navy}});
-  s8.addText('Transport Estimate',{x:0.4,y:0.2,w:9,h:0.5,fontSize:22,bold:true,color:C.amber});
-  s8.addText('Asian Supply Base Labuan — Relocation',{x:0.4,y:0.7,w:9,h:0.3,fontSize:11,color:C.grey});
+  s8.background={color:C.deep};
+  s8.addText('Transport Estimate',{x:0.5,y:0.15,w:8,h:0.55,
+    fontFace:'Georgia',fontSize:30,bold:true,color:C.white});
+  s8.addText('Asian Supply Base Labuan — Relocation',{x:0.5,y:0.72,w:8,h:0.28,
+    fontFace:'Calibri',fontSize:12,color:'A8D8EA'});
 
-  const trMetrics=[
-    {label:'20ft Containers',val:String(gc),sub:'General cargo',col:C.blue,x:0.3,y:1.2},
-    {label:'Special Containers',val:String(gsc),sub:'Hazmat / IMO',col:C.amber2,x:5.2,y:1.2},
-    {label:'Trailers',val:String(gt),sub:'Flatbed / tubulars',col:C.teal,x:0.3,y:3.6},
-    {label:'Crane Lifts',val:String(gh),sub:'Heavy equipment',col:C.red,x:5.2,y:3.6},
+  const tr8=[
+    {label:'20ft Containers',val:String(gc),sub:'General cargo & boxed spares',col:C.teal},
+    {label:'Special Containers',val:String(gsc),sub:'Hazmat / IMO rated',col:C.amber},
+    {label:'Trailers',val:String(gt),sub:'Flatbed / tubulars / structural',col:'02C39A'},
+    {label:'Crane Lifts',val:String(gh),sub:'Heavy equipment',col:C.red},
   ];
-  trMetrics.forEach(m=>{
-    s8.addShape(prs.ShapeType.rect,{x:m.x,y:m.y,w:4.5,h:2.0,fill:{color:m.col},rounding:0.1});
-    s8.addText(m.label,{x:m.x+0.2,y:m.y+0.15,w:4.1,h:0.3,fontSize:11,color:'DDEAF5',bold:true});
-    s8.addText(m.val,{x:m.x+0.2,y:m.y+0.45,w:4.1,h:1.1,fontSize:52,bold:true,color:C.white,valign:'middle'});
-    s8.addText(m.sub,{x:m.x+0.2,y:m.y+1.6,w:4.1,h:0.3,fontSize:10,color:'AABCCC'});
+  tr8.forEach((t,i)=>{
+    const x=i<2?0.4+(i*4.7):0.4+((i-2)*4.7);const y=i<2?1.1:3.3;
+    s8.addShape(prs.shapes.RECTANGLE,{x,y,w:4.3,h:1.85,fill:{color:'0D2B45'},shadow:mkShadow()});
+    s8.addShape(prs.shapes.RECTANGLE,{x,y,w:4.3,h:0.07,fill:{color:t.col}});
+    s8.addText(t.val,{x:x+0.15,y:y+0.18,w:4.0,h:1.1,fontFace:'Georgia',
+      fontSize:60,bold:true,color:t.col,valign:'middle'});
+    s8.addText(t.label,{x:x+0.15,y:y+1.3,w:4.0,h:0.26,fontFace:'Calibri',fontSize:10,bold:true,color:C.white});
+    s8.addText(t.sub,{x:x+0.15,y:y+1.55,w:4.0,h:0.22,fontFace:'Calibri',fontSize:8,color:'A8D8EA'});
   });
-
-  s8.addShape(prs.ShapeType.rect,{x:0.3,y:5.75,w:9.4,h:0.5,fill:{color:'1E2A3A'}});
-  s8.addText('⚠  Add 15% buffer to all figures for procurement.  75% container/trailer loading efficiency assumed.  '+verifiedCnt+'/'+SLOC_DEF.length+' SLOCs field-verified, remainder from MB52 auto-classification.',
-    {x:0.4,y:5.78,w:9.2,h:0.44,fontSize:9,color:C.amber,valign:'middle'});
-  s8.addNotes('Transport estimate is a blended calculation using field storage data where available and MB52 auto-classification as fallback.\n\nAssumptions:\n- 20ft container practical capacity: 24.9 m³ (75% of 33.2 m³ gross)\n- Trailer practical capacity: 61.5 m³, 28 tonne payload\n- Tubulars: two-limit calculation (weight vs physical count, take lower)\n- Packing efficiencies: 75% boxed goods, 65% drums/chemicals, 50% equipment\n\n'+verifiedCnt+' of '+SLOC_DEF.length+' SLOCs are field-verified. The '+( SLOC_DEF.length-verifiedCnt)+' remaining SLOCs use MB52 stock classification which may over or under estimate actual transport requirements.\n\nRecommendation: Add 15% buffer to all figures before issuing RFQ to transport providers.');
+  s8.addText('Add 15% buffer for procurement  ·  75% container/trailer loading efficiency  ·  '+verifiedCnt+'/'+SLOC_DEF.length+' SLOCs field-verified',
+    {x:0.4,y:5.28,w:9.2,h:0.22,fontFace:'Calibri',fontSize:9,color:'A8D8EA',align:'center',italic:true});
+  s8.addNotes('These are the headline transport numbers. Key assumption: 75% loading efficiency on all containers and trailers. Add 15% buffer before going to market.\n\n'+verifiedCnt+' of '+SLOC_DEF.length+' SLOCs are field-verified — the remaining '+(SLOC_DEF.length-verifiedCnt)+' use MB52 classification. Confidence level is moderate — recommend ops team validate the largest contributing SLOCs before finalising RFQ.');
   addFooter(s8,8);
 
-  // ── SLIDE 9: Transport by Owner ─────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 9 — TRANSPORT BY OWNER
+  // ═══════════════════════════════════════════════════════════════
   const s9=prs.addSlide();
-  s9.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s9,'Transport Estimate by Owner');
+  s9.background={color:C.offwhite};
+  s9.addText('Transport by Owner',{x:0.5,y:0.15,w:9,h:0.55,
+    fontFace:'Georgia',fontSize:28,bold:true,color:C.midnight});
 
-  const ownerData=OWNERS.filter(o=>ownerTotals[o].c||ownerTotals[o].t||ownerTotals[o].h).map(o=>({owner:o,...ownerTotals[o]}));
+  const activeOwners=OWNERS.filter(o=>ownerTotals[o].c||ownerTotals[o].t||ownerTotals[o].h||ownerTotals[o].sc);
   const oHdr=[
-    {text:'Owner',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:10}},
-    {text:'Containers',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:10,align:'center'}},
-    {text:'Special Ctrs',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:10,align:'center'}},
-    {text:'Trailers',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:10,align:'center'}},
-    {text:'Crane Lifts',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:10,align:'center'}},
-    {text:'Stock Value MYR',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:10,align:'right'}},
+    {text:'Owner',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:10,margin:5}},
+    {text:'Containers',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:10,align:'center',margin:5}},
+    {text:'Special',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:10,align:'center',margin:5}},
+    {text:'Trailers',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:10,align:'center',margin:5}},
+    {text:'Crane Lifts',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:10,align:'center',margin:5}},
+    {text:'Stock Value',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:10,align:'right',margin:5}},
   ];
-  const oRows=ownerData.map((o,i)=>{
-    const bg=i%2===0?C.white:C.rowalt;
+  const oRows9=activeOwners.map((o,i)=>{
+    const ot=ownerTotals[o];const bg=i%2===0?C.white:'EEF4FB';
     return[
-      {text:o.owner,options:{fontSize:11,bold:true,color:C.navy,fill:{color:bg}}},
-      {text:o.c?String(o.c):'—',options:{fontSize:14,bold:!!o.c,color:o.c?C.blue:C.grey,fill:{color:bg},align:'center'}},
-      {text:o.sc?String(o.sc):'—',options:{fontSize:14,bold:!!o.sc,color:o.sc?C.amber2:C.grey,fill:{color:bg},align:'center'}},
-      {text:o.t?String(o.t):'—',options:{fontSize:14,bold:!!o.t,color:o.t?C.teal:C.grey,fill:{color:bg},align:'center'}},
-      {text:o.h?String(o.h):'—',options:{fontSize:14,bold:!!o.h,color:o.h?C.red:C.grey,fill:{color:bg},align:'center'}},
-      {text:'MYR '+fN(Math.round(o.v)),options:{fontSize:10,color:C.green,fill:{color:bg},align:'right',bold:true}},
+      {text:o,options:{fontSize:12,bold:true,color:C.midnight,fill:{color:bg},margin:5}},
+      {text:ot.c?String(ot.c):'—',options:{fontSize:16,bold:!!ot.c,color:ot.c?C.deep:C.grey,fill:{color:bg},align:'center',margin:3}},
+      {text:ot.sc?String(ot.sc):'—',options:{fontSize:16,bold:!!ot.sc,color:ot.sc?C.amber:C.grey,fill:{color:bg},align:'center',margin:3}},
+      {text:ot.t?String(ot.t):'—',options:{fontSize:16,bold:!!ot.t,color:ot.t?C.teal:C.grey,fill:{color:bg},align:'center',margin:3}},
+      {text:ot.h?String(ot.h):'—',options:{fontSize:16,bold:!!ot.h,color:ot.h?C.red:C.grey,fill:{color:bg},align:'center',margin:3}},
+      {text:'MYR '+fN(Math.round(ot.v)),options:{fontSize:10,bold:true,color:C.green,fill:{color:bg},align:'right',margin:5}},
     ];
   });
-  oRows.push([
-    {text:'TOTAL',options:{fontSize:11,bold:true,color:C.white,fill:{color:C.navy}}},
-    {text:String(gc),options:{fontSize:14,bold:true,color:C.amber,fill:{color:C.navy},align:'center'}},
-    {text:String(gsc),options:{fontSize:14,bold:true,color:C.amber,fill:{color:C.navy},align:'center'}},
-    {text:String(gt),options:{fontSize:14,bold:true,color:C.amber,fill:{color:C.navy},align:'center'}},
-    {text:String(gh),options:{fontSize:14,bold:true,color:C.amber,fill:{color:C.navy},align:'center'}},
-    {text:'MYR '+fN(Math.round(totVal)),options:{fontSize:10,bold:true,color:C.amber,fill:{color:C.navy},align:'right'}},
+  oRows9.push([
+    {text:'TOTAL',options:{fontSize:12,bold:true,color:C.white,fill:{color:C.midnight},margin:5}},
+    {text:String(gc),options:{fontSize:16,bold:true,color:C.teal,fill:{color:C.midnight},align:'center',margin:3}},
+    {text:String(gsc),options:{fontSize:16,bold:true,color:C.amber,fill:{color:C.midnight},align:'center',margin:3}},
+    {text:String(gt),options:{fontSize:16,bold:true,color:C.teal,fill:{color:C.midnight},align:'center',margin:3}},
+    {text:String(gh),options:{fontSize:16,bold:true,color:C.red,fill:{color:C.midnight},align:'center',margin:3}},
+    {text:'MYR '+fN(Math.round(totVal)),options:{fontSize:10,bold:true,color:C.green,fill:{color:C.midnight},align:'right',margin:5}},
   ]);
-  s9.addTable([oHdr,...oRows],{x:0.5,y:1.0,w:9.0,rowH:0.72,border:{color:C.ltgrey,pt:0.5}});
-  s9.addText('Owner allocation based on % share entered per SLOC in field survey. Transport counts rounded up per owner.',
-    {x:0.2,y:6.8,w:9.6,h:0.2,fontSize:8,color:C.grey,italic:true});
-  s9.addNotes('Transport is split by owner based on the ownership percentages entered during the field survey. Each SLOC can have multiple owners with different percentage shares. Transport costs and quantities are allocated proportionally.\n\nNote: Individual owner totals may not sum exactly to the grand total due to ceiling rounding per owner per SLOC. "Not Assigned" represents SLOCs where no owner has been entered yet — these should be resolved before cost allocation.\n\nThis split can be used as the basis for rechargeable cost allocation between Wells and Assets, and between SK and SB cost centres.');
+  s9.addTable([oHdr,...oRows9],{x:0.5,y:0.85,w:9.0,rowH:0.65,
+    border:{pt:0.5,color:C.ltgrey},fontFace:'Calibri'});
+  s9.addText('Split based on ownership % per SLOC. Use for cost recharge between Wells and Assets, SK and SB cost centres.',
+    {x:0.5,y:5.32,w:9,h:0.2,fontFace:'Calibri',fontSize:8,color:C.grey,italic:true});
+  s9.addNotes('Transport is allocated by ownership percentage entered during the field survey. Each SLOC can have multiple owners. "Not Assigned" means no owner was entered — resolve before cost allocation.\n\nThis split is the basis for cost recharging between Wells-SK, Wells-SB, Assets-SK, and Assets-SB cost centres.');
   addFooter(s9,9);
 
-  // ── SLIDE 10: Transport by SLOC ────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 10 — TRANSPORT BY SLOC
+  // ═══════════════════════════════════════════════════════════════
   const s10=prs.addSlide();
-  s10.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s10,'Transport Estimate by SLOC');
+  s10.background={color:C.offwhite};
+  s10.addText('Transport by SLOC',{x:0.5,y:0.15,w:9,h:0.55,
+    fontFace:'Georgia',fontSize:28,bold:true,color:C.midnight});
 
   const trSlocs=slocRows.filter(r=>r.bt.containers||r.bt.special||r.bt.trailers||r.bt.heavy_lifts)
-    .sort((a,b)=>(b.bt.trailers+b.bt.containers)-(a.bt.trailers+a.bt.containers));
-  const tsHdr=[
-    {text:'SLOC',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8}},
-    {text:'Description',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8}},
-    {text:'Src',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'center'}},
-    {text:'Ctr',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'center'}},
-    {text:'Spec',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'center'}},
-    {text:'Trlr',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'center'}},
-    {text:'Lift',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:8,align:'center'}},
+    .sort((a,b)=>(b.bt.trailers+b.bt.containers+b.bt.heavy_lifts)-(a.bt.trailers+a.bt.containers+a.bt.heavy_lifts));
+  const ts10Hdr=[
+    {text:'SLOC',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,margin:4}},
+    {text:'Description',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,margin:4}},
+    {text:'Src',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,align:'center',margin:4}},
+    {text:'Ctr',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,align:'center',margin:4}},
+    {text:'Spec',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,align:'center',margin:4}},
+    {text:'Trlr',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,align:'center',margin:4}},
+    {text:'Lift',options:{bold:true,color:C.white,fill:{color:C.midnight},fontSize:8,align:'center',margin:4}},
   ];
-  const tsRows=trSlocs.slice(0,16).map((r,i)=>{
-    const bg=i%2===0?C.white:C.rowalt;
-    const srcCol=r.bt.source==='field'?C.green:C.blue;
+  const ts10Rows=trSlocs.slice(0,15).map((r,i)=>{
+    const bg=i%2===0?C.white:'EEF4FB';const src=r.bt.source==='field';
     return[
-      {text:r.code,options:{fontSize:8,bold:true,color:C.charcoal,fill:{color:bg}}},
-      {text:r.desc.slice(0,26),options:{fontSize:8,color:C.grey,fill:{color:bg}}},
-      {text:r.bt.source==='field'?'F':'M',options:{fontSize:8,bold:true,color:srcCol,fill:{color:bg},align:'center'}},
-      {text:r.bt.containers?String(r.bt.containers):'—',options:{fontSize:9,bold:!!r.bt.containers,color:r.bt.containers?C.blue:C.grey,fill:{color:bg},align:'center'}},
-      {text:r.bt.special?String(r.bt.special):'—',options:{fontSize:9,bold:!!r.bt.special,color:r.bt.special?C.amber2:C.grey,fill:{color:bg},align:'center'}},
-      {text:r.bt.trailers?String(r.bt.trailers):'—',options:{fontSize:9,bold:!!r.bt.trailers,color:r.bt.trailers?C.teal:C.grey,fill:{color:bg},align:'center'}},
-      {text:r.bt.heavy_lifts?String(r.bt.heavy_lifts):'—',options:{fontSize:9,bold:!!r.bt.heavy_lifts,color:r.bt.heavy_lifts?C.red:C.grey,fill:{color:bg},align:'center'}},
+      {text:r.code,options:{fontSize:8,bold:true,color:C.charcoal,fill:{color:bg},margin:4}},
+      {text:r.desc.slice(0,26),options:{fontSize:8,color:C.grey,fill:{color:bg},margin:4}},
+      {text:src?'F':'M',options:{fontSize:8,bold:true,color:src?C.green:C.blue,fill:{color:bg},align:'center',margin:4}},
+      {text:r.bt.containers?String(r.bt.containers):'—',options:{fontSize:9,bold:!!r.bt.containers,color:r.bt.containers?C.deep:C.grey,fill:{color:bg},align:'center',margin:4}},
+      {text:r.bt.special?String(r.bt.special):'—',options:{fontSize:9,bold:!!r.bt.special,color:r.bt.special?C.amber:C.grey,fill:{color:bg},align:'center',margin:4}},
+      {text:r.bt.trailers?String(r.bt.trailers):'—',options:{fontSize:9,bold:!!r.bt.trailers,color:r.bt.trailers?C.teal:C.grey,fill:{color:bg},align:'center',margin:4}},
+      {text:r.bt.heavy_lifts?String(r.bt.heavy_lifts):'—',options:{fontSize:9,bold:!!r.bt.heavy_lifts,color:r.bt.heavy_lifts?C.red:C.grey,fill:{color:bg},align:'center',margin:4}},
     ];
   });
-  tsRows.push([
-    {text:'TOTAL',options:{fontSize:8,bold:true,color:C.white,fill:{color:C.navy}}},
-    {text:'',options:{fill:{color:C.navy}}},
-    {text:'',options:{fill:{color:C.navy}}},
-    {text:String(gc),options:{fontSize:9,bold:true,color:C.amber,fill:{color:C.navy},align:'center'}},
-    {text:String(gsc),options:{fontSize:9,bold:true,color:C.amber,fill:{color:C.navy},align:'center'}},
-    {text:String(gt),options:{fontSize:9,bold:true,color:C.amber,fill:{color:C.navy},align:'center'}},
-    {text:String(gh),options:{fontSize:9,bold:true,color:C.amber,fill:{color:C.navy},align:'center'}},
+  ts10Rows.push([
+    {text:'TOTAL',options:{fontSize:8,bold:true,color:C.white,fill:{color:C.midnight},margin:4}},
+    {text:'',options:{fill:{color:C.midnight}}},
+    {text:'',options:{fill:{color:C.midnight}}},
+    {text:String(gc),options:{fontSize:9,bold:true,color:C.teal,fill:{color:C.midnight},align:'center',margin:4}},
+    {text:String(gsc),options:{fontSize:9,bold:true,color:C.amber,fill:{color:C.midnight},align:'center',margin:4}},
+    {text:String(gt),options:{fontSize:9,bold:true,color:C.teal,fill:{color:C.midnight},align:'center',margin:4}},
+    {text:String(gh),options:{fontSize:9,bold:true,color:C.red,fill:{color:C.midnight},align:'center',margin:4}},
   ]);
-  s10.addTable([tsHdr,...tsRows],{x:0.2,y:0.9,w:9.6,rowH:0.27,border:{color:C.ltgrey,pt:0.5}});
-  s10.addText('F = Field estimate (storage system data)  ·  M = MB52 auto-classification  ·  Sorted by total transport descending',
-    {x:0.2,y:7.05,w:9.6,h:0.2,fontSize:8,color:C.grey,italic:true});
-  const topTrlr=trSlocs[0];
-  s10.addNotes('This table shows the transport breakdown by individual SLOC, sorted by total transport requirement.\n\n'+(topTrlr?'Highest transport SLOC: '+topTrlr.code+' ('+topTrlr.desc+'). Estimate: '+(topTrlr.bt.containers||0)+' containers, '+(topTrlr.bt.trailers||0)+' trailers, '+(topTrlr.bt.heavy_lifts||0)+' crane lifts.\n\n':'')+' F = Field estimate: transport calculated from actual storage system dimensions, occupancy and fill factor measured during the field survey. Higher confidence.\n\nM = MB52 baseline: transport estimated from SAP stock classification. Use as indicative only — actual material volumes may differ.\n\nOps team should use this table to sequence the relocation — start with the largest transport SLOCs to secure logistics slots early.');
+  s10.addTable([ts10Hdr,...ts10Rows],{x:0.3,y:0.82,w:9.4,rowH:0.23,
+    border:{pt:0.5,color:C.ltgrey},fontFace:'Calibri'});
+  s10.addText('F = field measured  ·  M = MB52 estimate  ·  Sorted by total transport volume descending',
+    {x:0.3,y:5.32,w:9.4,h:0.2,fontFace:'Calibri',fontSize:8,color:C.grey,italic:true});
+  s10.addNotes('Sorted by total transport volume. Use this table to sequence the relocation — start with the highest transport SLOCs to book logistics slots early.\n\nTop SLOC: '+(trSlocs[0]?.code||'N/A')+' — '+( trSlocs[0]?.bt.containers||0)+' containers, '+(trSlocs[0]?.bt.trailers||0)+' trailers, '+(trSlocs[0]?.bt.heavy_lifts||0)+' crane lifts.\n\nF = field-verified (higher confidence). M = MB52 baseline (lower confidence — actual may differ).');
   addFooter(s10,10);
 
-  // ── SLIDE 11: Observations & Risks ─────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 11 — RISKS & OBSERVATIONS
+  // ═══════════════════════════════════════════════════════════════
   const s11=prs.addSlide();
-  s11.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s11,'Key Observations & Risks');
+  s11.background={color:C.offwhite};
+  s11.addText('Key Observations & Risks',{x:0.5,y:0.15,w:8,h:0.55,
+    fontFace:'Georgia',fontSize:28,bold:true,color:C.midnight});
+  // Risk count badge
+  s11.addShape(prs.shapes.RECTANGLE,{x:7.8,y:0.15,w:1.9,h:0.55,fill:{color:risks.length>0?C.red:C.green}});
+  s11.addText(risks.length>0?risks.length+' flagged':'All clear',
+    {x:7.8,y:0.15,w:1.9,h:0.55,fontFace:'Calibri',fontSize:11,bold:true,color:C.white,align:'center',valign:'middle'});
 
   if(risks.length===0){
-    s11.addText('No risk observations flagged during field survey.',{x:0.5,y:2,w:9,h:1,fontSize:16,color:C.grey,align:'center',valign:'middle'});
+    s11.addText('No risk observations flagged during field survey.',
+      {x:1,y:2,w:8,h:1,fontFace:'Calibri',fontSize:18,color:C.green,align:'center',valign:'middle'});
   } else {
-    risks.slice(0,8).forEach((r,i)=>{
-      const y=0.95+i*0.72;
-      s11.addShape(prs.ShapeType.rect,{x:0.2,y,w:0.08,h:0.55,fill:{color:C.amber}});
-      s11.addShape(prs.ShapeType.rect,{x:0.35,y,w:9.45,h:0.55,fill:{color:i%2===0?C.white:C.rowalt},line:{color:C.ltgrey,pt:0.5}});
-      s11.addText(r.code+' — '+r.desc,{x:0.45,y:y+0.02,w:9.2,h:0.22,fontSize:9,bold:true,color:C.navy});
-      const obsText=(r.obs||r.spec||'').slice(0,120)+(( r.obs||r.spec||'').length>120?'…':'');
-      s11.addText(obsText,{x:0.45,y:y+0.25,w:9.2,h:0.25,fontSize:8,color:C.charcoal});
+    risks.slice(0,7).forEach((r,i)=>{
+      const y=0.82+i*0.66;
+      s11.addShape(prs.shapes.RECTANGLE,{x:0.4,y,w:0.06,h:0.55,fill:{color:C.amber}});
+      s11.addShape(prs.shapes.RECTANGLE,{x:0.52,y,w:9.18,h:0.55,fill:{color:i%2===0?C.white:'FFF7ED'},line:{color:'FED7AA',pt:0.5}});
+      s11.addText(r.code+' — '+r.desc,{x:0.62,y:y+0.03,w:8.9,h:0.22,fontFace:'Calibri',fontSize:9,bold:true,color:C.midnight});
+      s11.addText((r.obs||r.spec||'').slice(0,130),{x:0.62,y:y+0.27,w:8.9,h:0.22,fontFace:'Calibri',fontSize:8,color:C.charcoal});
     });
   }
-  s11.addText('Risk observations pulled from field survey Notes and Special Requirements fields. Review and action before relocation.',
-    {x:0.2,y:7.05,w:9.6,h:0.2,fontSize:8,color:C.grey,italic:true});
-  s11.addNotes('This slide summarises '+risks.length+' SLOCs with observations flagged during the field survey that require follow-up action before or during relocation.\n\nKeywords used to identify risks: risk, concern, pending, access, hazmat, overflow, escort, crane, unknown, unclear, missing, damaged, expired, unlabelled.\n\nRecommendation: Ops team to review each flagged SLOC and assign a responsible person and completion date before finalising the relocation plan. These items may affect transport sequencing, cost, or safety compliance.');
+  s11.addText('Observations from field survey Notes and Special Requirements. Assign owner and date before finalising relocation plan.',
+    {x:0.4,y:5.33,w:9.2,h:0.18,fontFace:'Calibri',fontSize:8,color:C.grey,italic:true});
+  s11.addNotes('Walk through each flagged item. Each needs an assigned responsible person and resolution date.\n\nKeywords used to flag: '+riskKws.join(', ')+'.\n\nThese items may affect transport sequencing, cost, or safety compliance. Critical items should be resolved before issuing the transport RFQ.');
   addFooter(s11,11);
 
-  // ── SLIDE 12: Preservation ─────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 12 — PRESERVATION
+  // ═══════════════════════════════════════════════════════════════
   const s12=prs.addSlide();
-  s12.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s12,'Preservation & Maintenance');
-  const pres=state.preservation||{};
-  const presFields=[
-    {label:'Space Used',val:pres.spaceM2?(pres.spaceM2+' m²'):'Not recorded'},
-    {label:'Service Type',val:pres.service||'Not recorded'},
-    {label:'Vendor / Provider',val:pres.vendor||'Not recorded'},
-    {label:'Location on Site',val:pres.location||'Not recorded'},
-    {label:'Frequency',val:pres.frequency||'Not recorded'},
-    {label:'Activity Plan',val:pres.activityPlan||'Not recorded'},
-    {label:'Observations',val:pres.observations||'Not recorded'},
+  s12.background={color:C.offwhite};
+  s12.addText('Preservation & Maintenance',{x:0.5,y:0.15,w:9,h:0.55,
+    fontFace:'Georgia',fontSize:28,bold:true,color:C.midnight});
+  const pres12=state.preservation||{};
+  const presItems=[
+    {icon:'m²',label:'Space Used',val:pres12.spaceM2?pres12.spaceM2+' m²':'Not recorded',col:C.deep},
+    {icon:'⚙',label:'Service Type',val:pres12.service||'Not recorded',col:C.teal},
+    {icon:'',label:'Vendor',val:pres12.vendor||'Not recorded',col:C.midnight},
+    {icon:'📍',label:'Location',val:pres12.location||'Not recorded',col:C.teal},
+    {icon:'🔄',label:'Frequency',val:pres12.frequency||'Not recorded',col:C.deep},
   ];
-  presFields.forEach((f,i)=>{
-    const y=0.95+i*0.72;
-    s12.addShape(prs.ShapeType.rect,{x:0.2,y,w:2.5,h:0.6,fill:{color:C.navy}});
-    s12.addText(f.label,{x:0.3,y,w:2.3,h:0.6,fontSize:10,bold:true,color:C.amber,valign:'middle'});
-    s12.addShape(prs.ShapeType.rect,{x:2.8,y,w:6.9,h:0.6,fill:{color:i%2===0?C.white:C.rowalt},line:{color:C.ltgrey,pt:0.5}});
-    s12.addText(String(f.val).slice(0,120),{x:2.9,y,w:6.7,h:0.6,fontSize:10,color:C.charcoal,valign:'middle'});
+  presItems.forEach((p,i)=>{
+    const x=i<3?0.4:0.4+(i-3)*4.8;const y=i<3?0.85+i*1.12:3.3+(0)*1.12;
+    const w=i<3?9.2:4.5;
+    s12.addShape(prs.shapes.RECTANGLE,{x,y,w,h:0.95,fill:{color:C.white},shadow:mkShadow(),line:{color:C.ltgrey,pt:0.5}});
+    s12.addShape(prs.shapes.RECTANGLE,{x,y,w:0.07,h:0.95,fill:{color:p.col}});
+    s12.addText(p.label,{x:x+0.2,y:y+0.06,w:w-0.3,h:0.22,fontFace:'Calibri',fontSize:9,color:C.grey});
+    s12.addText(p.val.slice(0,80),{x:x+0.2,y:y+0.3,w:w-0.3,h:0.55,fontFace:'Calibri',fontSize:13,bold:true,color:C.charcoal,valign:'middle'});
   });
-  s12.addNotes('Preservation covers the ongoing maintenance of critical equipment and materials during the relocation period. This includes rotating equipment, pressure vessels, valves and instrumentation that require periodic attention to prevent deterioration.\n\nKey question for relocation planning: Will the current preservation vendor continue to service equipment at the new supply base location, or will a new vendor need to be engaged? This affects transition cost and continuity of asset integrity.');
+  if(pres12.observations){
+    s12.addShape(prs.shapes.RECTANGLE,{x:0.4,y:4.55,w:9.2,h:0.75,fill:{color:'EFF6FF'},line:{color:C.ltgrey,pt:0.5}});
+    s12.addText('Observations:',{x:0.55,y:4.6,w:1.5,h:0.22,fontFace:'Calibri',fontSize:9,bold:true,color:C.deep});
+    s12.addText(pres12.observations.slice(0,180),{x:0.55,y:4.82,w:9.0,h:0.38,fontFace:'Calibri',fontSize:9,color:C.charcoal});
+  }
+  s12.addNotes('Preservation covers ongoing maintenance of critical equipment during relocation. Key question: will the current vendor continue at the new location, or does a new vendor need to be engaged? This affects transition cost and asset integrity continuity.');
   addFooter(s12,12);
 
-  // ── SLIDE 13: Assumptions & Methodology ────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 13 — METHODOLOGY
+  // ═══════════════════════════════════════════════════════════════
   const s13=prs.addSlide();
-  s13.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s13,'Assumptions & Methodology');
-  const assumptions=[
-    {cat:'Container',items:['20ft container gross volume: 33.2 m³','Practical load: 24.9 m³ (75% loading efficiency)','Weight limit: 28 tonnes (rarely governing for general cargo)']},
-    {cat:'Trailer',items:['Flatbed trailer gross: 82 m³  ·  Practical: 61.5 m³ (75%)','Payload limit: 28 tonnes','Tubulars: MIN(weight limit ÷ joint weight, physical count limit)']},
-    {cat:'Packing Efficiency',items:['Boxed / palletised spares: 75%','Drums / IBCs: 65%  ·  Chemicals / Hazmat: 65%','Workshop equipment: 60%  ·  Instruments: 75%  ·  Cables: 70%']},
-    {cat:'Field Verification',items:['A SLOC is field-verified when storage system has: material types + dimensions + occupancy > 0','Open Floor: requires area m² + stack height + occupancy','Verified SLOCs use field calculation; others use MB52 classification']},
-    {cat:'Utilisation',items:['Floor util = footprint m² × floor occupancy slider (visual estimate)','Bin util = slot occupancy% × fill factor% (slot-level measurement)','Occupied volume = total capacity × bin utilisation%']},
+  s13.background={color:C.offwhite};
+  s13.addText('Assumptions & Methodology',{x:0.5,y:0.15,w:9,h:0.55,
+    fontFace:'Georgia',fontSize:28,bold:true,color:C.midnight});
+
+  const methodCols=[
+    {title:'Container',col:C.deep,items:['20ft gross: 33.2 m³','Practical: 24.9 m³ (75%)','Weight limit: 28t']},
+    {title:'Trailer',col:C.teal,items:['Gross: 82 m³','Practical: 61.5 m³ (75%)','Payload: 28t','Tubulars: weight + count limit']},
+    {title:'Packing Eff.',col:'7C3AED',items:['Boxed: 75%','Drums/IBCs: 65%','Chemicals: 65%','Workshop: 60%','Instruments: 75%','Cables: 70%']},
+    {title:'Verification',col:'D97706',items:['Field: storage dims + occ measured','MB52: SAP stock auto-classified','Blended: field preferred, MB52 fallback','10 material categories']},
   ];
-  let ay=0.9;
-  assumptions.forEach(a=>{
-    s13.addShape(prs.ShapeType.rect,{x:0.2,y:ay,w:1.8,h:0.22+a.items.length*0.22,fill:{color:C.navy}});
-    s13.addText(a.cat,{x:0.25,y:ay+0.04,w:1.7,h:0.22,fontSize:9,bold:true,color:C.amber});
-    a.items.forEach((item,j)=>{
-      s13.addShape(prs.ShapeType.rect,{x:2.1,y:ay+j*0.22,w:7.7,h:0.22,fill:{color:j%2===0?C.white:C.rowalt}});
-      s13.addText('· '+item,{x:2.2,y:ay+j*0.22,w:7.5,h:0.22,fontSize:8,color:C.charcoal,valign:'middle'});
+  methodCols.forEach((col,i)=>{
+    const x=0.35+i*2.38;
+    s13.addShape(prs.shapes.RECTANGLE,{x,y:0.85,w:2.2,h:0.4,fill:{color:col.col}});
+    s13.addText(col.title,{x:x+0.1,y:0.85,w:2.0,h:0.4,fontFace:'Calibri',fontSize:10,bold:true,color:C.white,valign:'middle'});
+    col.items.forEach((item,j)=>{
+      s13.addShape(prs.shapes.RECTANGLE,{x,y:1.3+j*0.42,w:2.2,h:0.38,fill:{color:j%2===0?C.white:'EEF4FB'},line:{color:C.ltgrey,pt:0.3}});
+      s13.addText(item,{x:x+0.1,y:1.32+j*0.42,w:2.0,h:0.34,fontFace:'Calibri',fontSize:8,color:C.charcoal,valign:'middle'});
     });
-    ay+=0.22+a.items.length*0.22+0.06;
   });
-  s13.addNotes('These assumptions form the basis of all transport estimates in this report. They should be reviewed and agreed with the appointed logistics provider before finalising any procurement.\n\nKey sensitivities:\n1. Loading efficiency: if actual loading is 65% instead of 75%, container count increases by ~15%\n2. Fill factor: the biggest source of estimation error — a 10% error in fill factor translates directly to 10% error in transport count\n3. Tubular counting: depends on accurate OD and weight data in MB52 material descriptions');
+  s13.addShape(prs.shapes.RECTANGLE,{x:0.35,y:4.5,w:9.3,h:0.7,fill:{color:'FFF7ED'},line:{color:'FED7AA',pt:0.5}});
+  s13.addText('Key sensitivity: ±10% error in fill factor → ±10% error in transport count. Recommend logistics provider validates top 5 SLOCs by transport volume before RFQ.',
+    {x:0.5,y:4.55,w:9.1,h:0.58,fontFace:'Calibri',fontSize:10,color:C.charcoal,valign:'middle'});
+  s13.addNotes('These assumptions should be reviewed with the logistics provider before finalising the RFQ. The most sensitive assumption is fill factor — a 10% change directly translates to a 10% change in transport count.');
   addFooter(s13,13);
 
-  // ── SLIDE 14: Next Steps ────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  // SLIDE 14 — NEXT STEPS
+  // ═══════════════════════════════════════════════════════════════
   const s14=prs.addSlide();
-  s14.addShape(prs.ShapeType.rect,{x:0,y:0,w:10,h:7.5,fill:{color:C.offwhite}});
-  hdrBar(s14,'Next Steps');
-
-  const steps=[
-    {action:'Complete remaining field surveys',owner:'Survey Team',date:'',priority:'High'},
-    {action:'Review and validate transport estimates with logistics team',owner:'Logistics / Ops',date:'',priority:'High'},
-    {action:'Address flagged observations and risk items ('+risks.length+' items)',owner:'Ops Team',date:'',priority:'High'},
-    {action:'Obtain racking supplier quotes based on inventory data',owner:'Procurement',date:'',priority:'Medium'},
-    {action:'Confirm new supply base floor area requirements',owner:'Management',date:'',priority:'Medium'},
-    {action:'Engage preservation vendor for transition period plan',owner:'Maintenance',date:'',priority:'Medium'},
-    {action:'Issue transport RFQ to logistics providers (+15% buffer)',owner:'Logistics',date:'',priority:'Medium'},
-    {action:'Update SAP storage location master data for new location',owner:'Materials / IT',date:'',priority:'Low'},
+  s14.background={color:C.midnight};
+  s14.addText('Next Steps',{x:0.5,y:0.2,w:9,h:0.55,
+    fontFace:'Georgia',fontSize:30,bold:true,color:C.white});
+  const steps14=[
+    {action:'Complete remaining field surveys ('+( SLOC_DEF.length-done)+' SLOCs)',priority:'High',col:C.red},
+    {action:'Validate transport estimates with logistics team',priority:'High',col:C.red},
+    {action:'Resolve '+risks.length+' flagged risk observations — assign owner & date',priority:'High',col:C.red},
+    {action:'Obtain racking supplier quotes ('+fN(Object.values(typeMap).filter((_,i)=>typeList[i]?.[0]!=='Open Floor / Pallet Stack').reduce((a,g)=>a+g.units,0))+' rack units)',priority:'Medium',col:C.amber},
+    {action:'Confirm floor area requirements at new supply base',priority:'Medium',col:C.amber},
+    {action:'Engage preservation vendor for transition period',priority:'Medium',col:C.amber},
+    {action:'Issue transport RFQ with 15% buffer applied',priority:'Medium',col:C.amber},
+    {action:'Update SAP storage location master data',priority:'Low',col:C.green},
   ];
-  const nsHdr=[
-    {text:'Action',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9}},
-    {text:'Owner',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'center'}},
-    {text:'Target Date',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'center'}},
-    {text:'Priority',options:{bold:true,color:C.white,fill:{color:C.navy},fontSize:9,align:'center'}},
-  ];
-  const nsRows=steps.map((s,i)=>{
-    const bg=i%2===0?C.white:C.rowalt;
-    const pCol=s.priority==='High'?C.red:s.priority==='Medium'?C.amber2:C.green;
-    return[
-      {text:s.action,options:{fontSize:9,color:C.charcoal,fill:{color:bg}}},
-      {text:s.owner,options:{fontSize:9,color:C.grey,fill:{color:bg},align:'center'}},
-      {text:s.date||'TBD',options:{fontSize:9,color:C.grey,fill:{color:bg},align:'center',italic:true}},
-      {text:s.priority,options:{fontSize:9,bold:true,color:pCol,fill:{color:bg},align:'center'}},
-    ];
+  steps14.forEach((s,i)=>{
+    const y=0.9+i*0.55;
+    s14.addShape(prs.shapes.RECTANGLE,{x:0.4,y,w:0.35,h:0.44,fill:{color:s.col}});
+    s14.addText(s.priority==='High'?'H':s.priority==='Medium'?'M':'L',
+      {x:0.4,y,w:0.35,h:0.44,fontFace:'Calibri',fontSize:9,bold:true,color:C.white,align:'center',valign:'middle'});
+    s14.addShape(prs.shapes.RECTANGLE,{x:0.8,y,w:7.5,h:0.44,fill:{color:'0D2B45'}});
+    s14.addText(s.action,{x:0.95,y,w:7.3,h:0.44,fontFace:'Calibri',fontSize:10,color:C.white,valign:'middle'});
+    s14.addShape(prs.shapes.RECTANGLE,{x:8.35,y,w:1.35,h:0.44,fill:{color:'152A40'}});
+    s14.addText('Owner / Date',{x:8.35,y,w:1.35,h:0.44,fontFace:'Calibri',fontSize:8,color:C.grey,align:'center',valign:'middle',italic:true});
   });
-  s14.addTable([nsHdr,...nsRows],{x:0.2,y:0.9,w:9.6,rowH:0.42,border:{color:C.ltgrey,pt:0.5}});
-  s14.addText('Update Owner and Target Date columns before presenting to management.',
-    {x:0.2,y:7.0,w:9.6,h:0.25,fontSize:9,color:C.amber,italic:true,bold:true});
+  s14.addText('Fill in Owner and Target Date before distributing',
+    {x:0.4,y:5.3,w:9.2,h:0.22,fontFace:'Calibri',fontSize:9,color:C.amber,italic:true,align:'center'});
   addFooter(s14,14);
 
   // ── Download ───────────────────────────────────────────────────
   const d3=new Date();
   const ts3=d3.toISOString().slice(0,10)+'_'+d3.toTimeString().slice(0,8).replace(/:/g,'');
   prs.writeFile({fileName:'ASB_Survey_Report_'+ts3+'.pptx'});
-  showToast('PowerPoint report downloaded',2500);
+  showToast('PowerPoint generated — 14 slides',2500);
 }
+
 
 function exportXLSX(){
   if(typeof XLSX==='undefined'){showToast('Loading Excel library...',1500);setTimeout(exportXLSX,1500);return;}
