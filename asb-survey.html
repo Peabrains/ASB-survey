@@ -1300,8 +1300,8 @@ function rStorForm(){
         <div style="font-size:11px;color:var(--tx3)">Toggle off if this storage system is staying</div>
       </div>
       <div class="tog" style="width:160px;margin-bottom:0">
-        <button class="to${_sf.relocate!==false?' on':''}" onclick="_sf.relocate=true;updRelocToggle()">Yes</button>
-        <button class="to${_sf.relocate===false?' on':''}" onclick="_sf.relocate=false;updRelocToggle()">No</button>
+        <button id="sf-reloc-yes" class="to${_sf.relocate!==false?' on':''}" onclick="_sf.relocate=true;updRelocToggle()">Yes</button>
+        <button id="sf-reloc-no" class="to${_sf.relocate===false?' on':''}" onclick="_sf.relocate=false;updRelocToggle()">No</button>
       </div>
     </div>
     <label class="fl">Notes</label>
@@ -2972,97 +2972,274 @@ function exportXLSX(){
     stripE(t.outcome||''),t.slocRef||'',t.priority||'',t.status||'',t.due||'',t.created||'']);
   XLSX.utils.book_append_sheet(wb,mkSheet(h6,r6),'Tasks');
 
-  // ── Sheet 7: Transport Estimate ────────────────────────────────
-  const h7=['SLOC Code','Description','Source','Field Verified','Containers','Special Ctrs','Trailers','Crane Lifts','Stock Value MYR'];
-  const r7=SLOC_DEF.map(d=>{const bt=slocBestTransport(d.id);const s=state.slocs[d.id];
-    return[s?.code||d.code,stripE(s?.desc||d.desc),bt.source==='field'?'Field':'MB52',
-      slocFieldVerified(d.id)?'Yes':'No',bt.containers||0,bt.special||0,bt.trailers||0,bt.heavy_lifts||0,d.stock?.v||0];});
-  const OWNERS_T=["Wells-SK","Wells-SB","Assets-SK","Assets-SB","Not Assigned"];
-  const ownerMap={};OWNERS_T.forEach(o=>{ownerMap[o]={c:0,sc:0,t:0,h:0,v:0};});
-  SLOC_DEF.filter(d=>d.stock).forEach(d=>{
-    const s=state.slocs[d.id]||{};const bt=slocBestTransport(d.id);const owners=s.owners||[];
-    if(!owners.length||!owners.some(o=>o.name&&o.pct>0)){
-      const ot=ownerMap["Not Assigned"];ot.c+=bt.containers||0;ot.sc+=bt.special||0;
-      ot.t+=bt.trailers||0;ot.h+=bt.heavy_lifts||0;ot.v+=d.stock?.v||0;return;}
-    owners.forEach(o=>{if(!o.name||!o.pct)return;
-      const key=OWNERS_T.includes(o.name)?o.name:"Not Assigned";
-      const pct=(+o.pct||0)/100;const ot=ownerMap[key];
-      ot.c+=Math.ceil((bt.containers||0)*pct);ot.sc+=Math.ceil((bt.special||0)*pct);
-      ot.t+=Math.ceil((bt.trailers||0)*pct);ot.h+=Math.ceil((bt.heavy_lifts||0)*pct);
-      ot.v+=(d.stock?.v||0)*pct;});});
-  r7.push(['GRAND TOTAL','','','',
-    r7.reduce((a,r)=>a+(+r[4]||0),0),r7.reduce((a,r)=>a+(+r[5]||0),0),
-    r7.reduce((a,r)=>a+(+r[6]||0),0),r7.reduce((a,r)=>a+(+r[7]||0),0),
-    SLOC_DEF.reduce((a,d)=>a+(d.stock?.v||0),0)]);
-  XLSX.utils.book_append_sheet(wb,mkSheet(h7,r7),'Transport Estimate');
-
-  // ── Sheet 7b: Transport Cost Breakdown ────────────────────────
-  const hTC=['SLOC','Description','Material Category','Transport Mode',
-    'SAP Items','SAP Qty','Stock Value (RM)',
-    'Pack Factor','Container Cap (m³)','Units Required (MB52)',
-    'Rate (RM/unit)','Est. Cost (RM)','Notes'];
-  const rTC=[];
-  const TRANSPORT_MODE_LABEL={container:'Container (20ft)',special_container:'Special / IMO Container',trailer:'Trailer / Flatbed',heavy_lift:'Heavy Lift / Crane'};
+  // ── Shared transport helpers ──────────────────────────────────
+  const OWNERS_T=['Wells-SK','Wells-SB','Assets-SK','Assets-SB','Not Assigned'];
+  const TM_LABEL={container:'Container (20ft)',special_container:'Special / IMO Ctr',trailer:'Trailer / Flatbed',heavy_lift:'Heavy Lift / Crane'};
   const RATE_BY_MODE={container:RATE_CONTAINER,special_container:RATE_SPECIAL,trailer:RATE_TRAILER,heavy_lift:RATE_HEAVYLIFT};
-  const CONTAINER_PRACTICAL=24.9;const TRAILER_PRACTICAL=61.5;
-  const CAP_BY_MODE={container:CONTAINER_PRACTICAL,special_container:CONTAINER_PRACTICAL,trailer:TRAILER_PRACTICAL,heavy_lift:5};
-  let tcTotCont=0,tcTotSpec=0,tcTotTrail=0,tcTotHeavy=0,tcTotCost=0,tcTotVal=0;
+  const CP=24.9,TP=61.5; // CONTAINER_PRACTICAL, TRAILER_PRACTICAL
+  const CAP_BY_MODE={container:CP,special_container:CP,trailer:TP,heavy_lift:5};
+  const PACK_MB52={BOXED_SPARES:0.75,CABLE_FLEX:0.70,INSTRUMENT:0.75,DRUM_IBC:0.65,WORKSHOP:0.60,CHEMICAL:0.65,STRUCTURAL:null,TUBULAR:null,MEDIUM_EQUIP:0.50,HEAVY_LIFT:null};
+
+  // Helper: split SLOC transport units by owner (matches PWA Math.ceil logic)
+  function splitByOwner(bt,owners,stockV){
+    const validOwners=owners.filter(o=>o.name&&+o.pct>0);
+    if(!validOwners.length) return [{owner:'Not Assigned',pct:100,
+      c:bt.containers||0,sc:bt.special||0,t:bt.trailers||0,h:bt.heavy_lifts||0,v:stockV}];
+    return validOwners.map(o=>{
+      const pct=(+o.pct||0)/100;
+      return{owner:o.name,pct:+o.pct,
+        c:Math.ceil((bt.containers||0)*pct),sc:Math.ceil((bt.special||0)*pct),
+        t:Math.ceil((bt.trailers||0)*pct),h:Math.ceil((bt.heavy_lifts||0)*pct),
+        v:(stockV||0)*pct};});
+  }
+
+  // ── Sheet 7: Transport Summary (SLOC × Owner) ─────────────────
+  const h7=['SLOC','Description','Source','Field Verified',
+    'Owner','Owner %',
+    'Containers','Special Ctrs','Trailers','Crane Lifts',
+    'Rate Ctr (RM)','Rate Spl (RM)','Rate Trl (RM)','Rate Lift (RM)',
+    'Est. Cost (RM)','Stock Value (RM)',
+    'Derivation Note'];
+  const r7=[];
+  let s7TotC=0,s7TotSC=0,s7TotT=0,s7TotH=0,s7TotCost=0,s7TotVal=0;
   SLOC_DEF.forEach(d=>{
-    const td=TRANSPORT_DATA[d.code]||TRANSPORT_DATA[d.id];if(!td)return;
-    const s=state.slocs[d.id];const desc=stripE(s?.desc||d.desc);
-    (td.categories||[]).forEach(cat=>{
-      const mode=cat.transport||'container';
-      const rate=RATE_BY_MODE[mode]||RATE_CONTAINER;
-      const cap=CAP_BY_MODE[mode]||CONTAINER_PRACTICAL;
-      const units=cat.containers||cat.special_containers||cat.trailers||cat.lifts||0;
-      const cost=units*rate;
-      const pf=mode==='trailer'?'N/A':mode==='heavy_lift'?'N/A (5 m³/lift)':
-        mode==='special_container'?0.65:
-        ({BOXED_SPARES:0.75,CABLE_FLEX:0.70,INSTRUMENT:0.75,DRUM_IBC:0.65,WORKSHOP:0.60}[cat.cat]||0.75);
-      rTC.push([d.code,desc,cat.label,TRANSPORT_MODE_LABEL[mode]||mode,
-        cat.items||0,Math.round(cat.qty||0),Math.round(cat.value||0),
-        pf,cap,units,rate,cost,
-        'Source: SAP MB52 | Rate: placeholder — update with RFQ']);
-      if(mode==='container')tcTotCont+=units;
-      else if(mode==='special_container')tcTotSpec+=units;
-      else if(mode==='trailer')tcTotTrail+=units;
-      else if(mode==='heavy_lift')tcTotHeavy+=units;
-      tcTotCost+=cost;tcTotVal+=cat.value||0;
+    const s=state.slocs[d.id]||{};
+    const bt=slocBestTransport(d.id);
+    const src=bt.source==='field'?'Field':'MB52';
+    const fv=slocFieldVerified(d.id)?'Yes':'No';
+    const code=s.code||d.code;
+    const desc=stripE(s.desc||d.desc);
+    const stockV=d.stock?.v||0;
+    const splits=splitByOwner(bt,s.owners||[],stockV);
+    const derivNote=bt.source==='field'
+      ?'Field: sum of storage system × matType volumes → CEILING(vol÷(cap×pack),1) per mode'
+      :'MB52: pre-computed from SAP MB52 stock classification — see Transport Calc Detail sheet';
+    splits.forEach(ow=>{
+      const cost=ow.c*RATE_CONTAINER+ow.sc*RATE_SPECIAL+ow.t*RATE_TRAILER+ow.h*RATE_HEAVYLIFT;
+      r7.push([code,desc,src,fv,
+        ow.owner,ow.pct,
+        ow.c,ow.sc,ow.t,ow.h,
+        RATE_CONTAINER,RATE_SPECIAL,RATE_TRAILER,RATE_HEAVYLIFT,
+        cost,Math.round(ow.v),
+        derivNote]);
+      s7TotC+=ow.c;s7TotSC+=ow.sc;s7TotT+=ow.t;s7TotH+=ow.h;
+      s7TotCost+=cost;s7TotVal+=ow.v;
     });
+    // SLOC subtotal row (only if multiple owners)
+    if(splits.length>1){
+      const slocCost=(bt.containers||0)*RATE_CONTAINER+(bt.special||0)*RATE_SPECIAL+(bt.trailers||0)*RATE_TRAILER+(bt.heavy_lifts||0)*RATE_HEAVYLIFT;
+      r7.push([code+' SUBTOTAL',desc,src,fv,'— ALL —',100,
+        bt.containers||0,bt.special||0,bt.trailers||0,bt.heavy_lifts||0,
+        '','','','',slocCost,Math.round(stockV),'SLOC total before owner split']);
+    }
   });
-  // Assumption rows
-  rTC.push([]);
-  rTC.push(['─── ASSUMPTIONS ───','','','','','','','','','','','','']);
-  rTC.push(['Container cap (gross)','33.2 m³','× 75% util = 24.9 m³ practical','','','','','','','','','','Source: PWA asb-survey.html ln 307']);
-  rTC.push(['Trailer cap (gross)','82.0 m³','× 75% util = 61.5 m³ practical','','','','','','','','','','Source: PWA asb-survey.html ln 308']);
-  rTC.push(['Unit counts','From SAP MB52','Embedded in PWA TRANSPORT_DATA constant','','','','','','','','','','Higher confidence than field estimates']);
-  rTC.push(['Stock value (RM '+Math.round(tcTotVal).toLocaleString()+')','NOT transport cost','SAP unrestricted stock value only','','','','','','','','','','Do not quote this as a logistics cost']);
-  rTC.push([]);
-  rTC.push(['GRAND TOTAL','','','',
-    '','','Math.round(tcTotVal)',
+  r7.push(['GRAND TOTAL','','','','',100,
+    s7TotC,s7TotSC,s7TotT,s7TotH,
+    '','','','',s7TotCost,Math.round(s7TotVal),
+    '⚠ Rates are PLACEHOLDER — replace with actual RFQ rates before presenting']);
+  XLSX.utils.book_append_sheet(wb,mkSheet(h7,r7),'Transport Summary');
+
+  // ── Sheet 8: Transport Calc Detail (category/SS×matType × Owner) ──
+  // Columns: SLOC | Desc | Source | Owner | Owner% | Category/System | Material Type |
+  //   Storage Type | Dims/Vol inputs | Occ% | Fill | Gross m³ | Occ m³ | Mat% | Vol (m³) |
+  //   Transport Mode | Pack Factor | Cap (m³) | CEILING formula | Units (SLOC) | Owner Units |
+  //   Rate | Cost | Notes
+  const h8=[
+    'SLOC','Description','Source','Owner','Owner %',
+    // detail
+    'Category / Storage System','Material Type',
+    // volume derivation
+    'System Type','Dimensions / Inputs','Occ %','Fill Factor',
+    'Gross Vol (m³)','Occ Vol (m³)','Mat Type %','Vol this MatType (m³)',
+    // transport derivation
+    'Transport Mode','Pack Factor','Eff. Cap (m³)',
+    'Derivation: CEILING formula','Units (SLOC total)','Owner Units (CEILed)',
+    // cost
+    'Rate (RM/unit)','Est. Cost (RM)',
+    // context
+    'Notes'
+  ];
+  const r8=[];
+  let s8TotC=0,s8TotSC=0,s8TotT=0,s8TotH=0,s8TotCost=0;
+
+  SLOC_DEF.forEach(d=>{
+    const s=state.slocs[d.id]||{};
+    const bt=slocBestTransport(d.id);
+    const code=s.code||d.code;
+    const desc=stripE(s.desc||d.desc);
+    const stockV=d.stock?.v||0;
+    const splits=splitByOwner(bt,s.owners||[],stockV);
+    const ownerPctMap={};splits.forEach(ow=>{ownerPctMap[ow.owner]=ow.pct;});
+
+    if(bt.source==='field'){
+      // ── FIELD PATH: one row per storage system × matType × owner ──
+      (s.storageSystems||[]).forEach(ss=>{
+        if(ss.relocate===false) return;
+        const mats=(ss.matTypes||[]).filter(m=>m.id&&+m.pct>0);
+        if(!mats.length) return;
+        // Calculate gross and occ volumes (mirrors calcSysTransport)
+        let grossM3,occM3,dimStr,sysNote;
+        if(ss.type==='Open Floor / Pallet Stack'){
+          const fill=+ss.fill||0.5;
+          grossM3=(+ss.areaM2||0)*(+ss.stackH||0);
+          occM3=grossM3*(+ss.occ/100||0)*fill;
+          dimStr='Area='+ss.areaM2+'m² × StackH='+ss.stackH+'m';
+          sysNote='OccM³ = Area×StackH×Occ%×Fill = '+ss.areaM2+'×'+ss.stackH+'×'+(+ss.occ/100)+'×'+fill+'='+occM3.toFixed(2);
+        } else {
+          const slotVolM3=((+ss.slL/100)*(+ss.slW/100)*(+ss.slH/100));
+          grossM3=(+ss.units||0)*(+ss.levels||1)*(+ss.spu||0)*slotVolM3;
+          occM3=grossM3*(+ss.occ/100||0);
+          dimStr=ss.units+'u × '+ss.levels+'lvl × '+ss.spu+'spu × '+ss.slL+'×'+ss.slW+'×'+ss.slH+'cm';
+          sysNote='OccM³ = Units×Levels×SPU×(L×W×H)×Occ% = '+ss.units+'×'+ss.levels+'×'+ss.spu+'×'+slotVolM3.toFixed(4)+'×'+(+ss.occ/100).toFixed(2)+'='+occM3.toFixed(2);
+        }
+        mats.forEach(m=>{
+          const def=MTYPES.find(x=>x.id===m.id);if(!def) return;
+          const vol=occM3*(+m.pct/100);
+          const mode=def.transport==='special'?'special_container':def.transport;
+          const rate=RATE_BY_MODE[mode]||RATE_CONTAINER;
+          const pack=def.pack;
+          let cap,units,ceilFormula;
+          if(mode==='heavy_lift'){
+            cap=5;units=Math.ceil(vol/5)||1;
+            ceilFormula='CEILING('+vol.toFixed(2)+'÷5, 1) = '+units+' lifts';
+          } else if(mode==='trailer'){
+            cap=pack?TP/pack:TP;
+            units=Math.ceil(vol/cap);
+            ceilFormula='CEILING('+vol.toFixed(2)+'÷'+(pack?'('+TP+'÷'+pack+')':TP)+', 1) = '+units+' trailers';
+          } else {
+            cap=CP*(pack||0.75);
+            units=Math.ceil(vol/cap);
+            ceilFormula='CEILING('+vol.toFixed(2)+'÷('+CP+'×'+(pack||0.75)+'), 1) = '+units+' '+mode+'s';
+          }
+          if(!units) return;
+          // Per owner
+          splits.forEach(ow=>{
+            const pct=ow.pct/100;
+            const owUnits=Math.ceil(units*pct);
+            const cost=owUnits*rate;
+            if(mode==='container')s8TotC+=owUnits;
+            else if(mode==='special_container')s8TotSC+=owUnits;
+            else if(mode==='trailer')s8TotT+=owUnits;
+            else if(mode==='heavy_lift')s8TotH+=owUnits;
+            s8TotCost+=cost;
+            r8.push([
+              code,desc,'Field',ow.owner,ow.pct,
+              stripE(ss.notes||ss.type)||ss.type, m.id,
+              ss.type, dimStr, +ss.occ, +ss.fill||0.5,
+              +grossM3.toFixed(3), +occM3.toFixed(3), +m.pct, +vol.toFixed(3),
+              TM_LABEL[mode]||mode, pack||'N/A', +cap.toFixed(2),
+              ceilFormula+' → owner '+ow.pct+'% → CEIL('+units+'×'+pct+')='+owUnits,
+              units, owUnits,
+              rate, cost,
+              sysNote
+            ]);
+          });
+        });
+      });
+    } else {
+      // ── MB52 PATH: one row per TRANSPORT_DATA category × owner ──
+      const td=TRANSPORT_DATA[code]||{};
+      (td.categories||[]).forEach(cat=>{
+        const mode=cat.transport==='special'?'special_container':cat.transport;
+        const pack=PACK_MB52[cat.cat]||null;
+        const cap=pack?(mode==='trailer'?TP/pack:CP*pack):(mode==='trailer'?TP:mode==='heavy_lift'?5:CP);
+        const rate=RATE_BY_MODE[mode]||RATE_CONTAINER;
+        const slocUnits=cat.containers||cat.special_containers||cat.trailers||cat.lifts||0;
+        if(!slocUnits) return;
+        // Reconstruct approx volume for display only
+        const approxVol=(mode==='heavy_lift')?slocUnits*5:(mode==='trailer')?(slocUnits*cap):(slocUnits*cap);
+        const ceilFormulaBase=mode==='heavy_lift'
+          ?'CEILING(vol÷5,1)='+slocUnits+' lifts'
+          :mode==='trailer'
+            ?'CEILING(vol÷'+(pack?'('+TP+'÷'+pack+')':TP)+',1)='+slocUnits+' trailers'
+            :'CEILING(vol÷('+CP+(pack?'×'+pack:'')+'),1)='+slocUnits;
+        splits.forEach(ow=>{
+          const pct=ow.pct/100;
+          const owUnits=Math.ceil(slocUnits*pct);
+          const cost=owUnits*rate;
+          if(mode==='container')s8TotC+=owUnits;
+          else if(mode==='special_container')s8TotSC+=owUnits;
+          else if(mode==='trailer')s8TotT+=owUnits;
+          else if(mode==='heavy_lift')s8TotH+=owUnits;
+          s8TotCost+=cost;
+          r8.push([
+            code,desc,'MB52',ow.owner,ow.pct,
+            cat.label, cat.cat,
+            'SAP MB52','SAP items='+cat.items+' qty='+Math.round(cat.qty||0),
+            '—','—',
+            '—',+approxVol.toFixed(1),cat.pct,+approxVol.toFixed(1),
+            TM_LABEL[mode]||mode, pack||'N/A', +cap.toFixed(2),
+            ceilFormulaBase+' → owner '+ow.pct+'% → CEIL('+slocUnits+'×'+pct+')='+owUnits,
+            slocUnits, owUnits,
+            rate, cost,
+            'MB52 unit counts from SAP stock run 23 May 2026. Vol shown is back-calculated for reference only.'
+          ]);
+        });
+      });
+    }
+
+    // SLOC subtotal row
+    const slocCost=(bt.containers||0)*RATE_CONTAINER+(bt.special||0)*RATE_SPECIAL+(bt.trailers||0)*RATE_TRAILER+(bt.heavy_lifts||0)*RATE_HEAVYLIFT;
+    r8.push([code+' SUBTOTAL',desc,bt.source==='field'?'Field':'MB52','— ALL —',100,
+      '','','','','','','','','','',
+      '','','','SLOC total: '+bt.containers+'ctr / '+bt.special+'spl / '+bt.trailers+'trl / '+bt.heavy_lifts+'lift',
+      (bt.containers||0)+(bt.special||0)+(bt.trailers||0)+(bt.heavy_lifts||0),'',
+      '','',slocCost+'  (before owner split)'
+    ]);
+  });
+
+  r8.push(['GRAND TOTAL','','','','',
+    '','','','','','','','','','',
+    '','','',
+    'Ctr='+s8TotC+' | Spl='+s8TotSC+' | Trl='+s8TotT+' | Lift='+s8TotH,
     '','',
-    'Containers:'+tcTotCont+' | Spl:'+tcTotSpec+' | Trailers:'+tcTotTrail+' | Lifts:'+tcTotHeavy,
-    '─ update rates below ─',tcTotCost,
-    '⚠ Rates are PLACEHOLDER — replace with RFQ']);
-  // Fix the grand total row to use actual computed values
-  rTC[rTC.length-1]=['GRAND TOTAL','','','','','',Math.round(tcTotVal),'','',
-    'Containers:'+tcTotCont+' | Spl:'+tcTotSpec+' | Trailers:'+tcTotTrail+' | Lifts:'+tcTotHeavy,
-    '─ update rates ─',tcTotCost,
-    '⚠ Rates PLACEHOLDER: Ctr=RM'+RATE_CONTAINER.toLocaleString()+' Spl=RM'+RATE_SPECIAL.toLocaleString()+' Trailer=RM'+RATE_TRAILER.toLocaleString()+' HeavyLift=RM'+RATE_HEAVYLIFT.toLocaleString()];
-  XLSX.utils.book_append_sheet(wb,mkSheet(hTC,rTC),'Transport Cost Breakdown');
+    '','',s8TotCost+'  ⚠ PLACEHOLDER rates — update with RFQ'
+  ]);
+  XLSX.utils.book_append_sheet(wb,mkSheet(h8,r8),'Transport Calc Detail');
 
-  // ── Sheet 8: Transport by Owner ────────────────────────────────
-  const h8=['Owner','Containers','Special Ctrs','Trailers','Crane Lifts','Stock Value MYR'];
-  const r8=OWNERS_T.filter(o=>ownerMap[o].c||ownerMap[o].t||ownerMap[o].h||ownerMap[o].v)
-    .map(o=>[o,ownerMap[o].c,ownerMap[o].sc,ownerMap[o].t,ownerMap[o].h,Math.round(ownerMap[o].v)]);
-  r8.push(['TOTAL',Object.values(ownerMap).reduce((a,v)=>a+v.c,0),
-    Object.values(ownerMap).reduce((a,v)=>a+v.sc,0),
-    Object.values(ownerMap).reduce((a,v)=>a+v.t,0),
-    Object.values(ownerMap).reduce((a,v)=>a+v.h,0),
-    Math.round(Object.values(ownerMap).reduce((a,v)=>a+v.v,0))]);
-  XLSX.utils.book_append_sheet(wb,mkSheet(h8,r8),'Transport by Owner');
+  // ── Sheet 9: Transport Assumptions ────────────────────────────
+  const h9x=['Parameter','Value','Notes'];
+  const r9x=[
+    ['── CAPACITY CONSTANTS ──','',''],
+    ['Container gross capacity','33.2 m³','Standard ISO 20ft dry'],
+    ['Container practical fill','75%','Loading efficiency factor'],
+    ['Container practical volume (CP)','24.9 m³','= 33.2 × 75%'],
+    ['Trailer gross capacity','82.0 m³','Standard flatbed'],
+    ['Trailer practical fill','75%','Loading efficiency factor'],
+    ['Trailer practical volume (TP)','61.5 m³','= 82.0 × 75%'],
+    ['Heavy lift threshold','5 m³ per lift','CEILING(vol÷5, 1) lifts'],
+    ['','',''],
+    ['── MATERIAL PACK FACTORS ──','',''],
+    ['BOXED (Boxed/Palletised)','0.75','Container: CEILING(vol÷(24.9×0.75),1)'],
+    ['DRUM (Drums/IBCs)','0.65','Container: CEILING(vol÷(24.9×0.65),1)'],
+    ['CHEMICAL (Hazmat)','0.65','Special container: CEILING(vol÷(24.9×0.65),1)'],
+    ['CABLE (Cables/Flexibles)','0.70','Container: CEILING(vol÷(24.9×0.70),1)'],
+    ['INSTR (Instruments)','0.75','Container: CEILING(vol÷(24.9×0.75),1)'],
+    ['WORKSHOP','0.60','Container: CEILING(vol÷(24.9×0.60),1)'],
+    ['TUBULAR (Long items)','N/A','Trailer: CEILING(vol÷61.5,1) — no pack factor'],
+    ['STRUCT (Structural)','N/A','Trailer: CEILING(vol÷61.5,1) — no pack factor'],
+    ['EQUIP_M (Medium equip)','0.50','Trailer: CEILING(vol÷(61.5÷0.50),1)'],
+    ['EQUIP_H (Heavy equip)','N/A','Heavy lift: CEILING(vol÷5,1) lifts'],
+    ['','',''],
+    ['── RATE CARD (PLACEHOLDER — replace with RFQ) ──','',''],
+    ['Standard Container (20ft)','RM '+RATE_CONTAINER.toLocaleString(),'Per trip — update with logistics RFQ'],
+    ['Special / IMO Container','RM '+RATE_SPECIAL.toLocaleString(),'Per trip — hazmat surcharge included'],
+    ['Trailer / Flatbed','RM '+RATE_TRAILER.toLocaleString(),'Per trip — update with logistics RFQ'],
+    ['Heavy Lift / Crane','RM '+RATE_HEAVYLIFT.toLocaleString(),'Per mobilisation — update with specialist quote'],
+    ['','',''],
+    ['── OWNER SPLIT METHOD ──','',''],
+    ['Method','Math.ceil per owner','Matches PWA transport summary exactly'],
+    ['Rounding effect','May over-count by 1-2 units at grand total','e.g. 9 containers split 80/20 → CEIL(7.2)+CEIL(1.8) = 8+2 = 10'],
+    ['Source','asb-survey.html — splitByOwner()','Same logic as PWA Transport by Owner screen'],
+    ['','',''],
+    ['── DATA SOURCES ──','',''],
+    ['MB52 unit counts','SAP MB52 stock run — 23 May 2026','Embedded in TRANSPORT_DATA constant in PWA'],
+    ['Field unit counts','Live from state.slocs storage systems','Recalculated on each Excel export'],
+    ['Stock value','SAP MB52 unrestricted stock value','NOT transport cost — do not quote as logistics spend'],
+  ];
+  XLSX.utils.book_append_sheet(wb,mkSheet(h9x,r9x),'Transport Assumptions');
 
-  // ── Sheet 9: Quick Capture Files ──────────────────────────────
+  // ── Sheet 10: Quick Capture Files ─────────────────────────────
   const h9=['SLOC Code','Description','Location','Type','Filename','Timestamp'];
   const r9=SLOC_DEF.flatMap(d=>{const s=state.slocs[d.id]||{};
     const loc=getAllLocs().find(x=>x.id===d.loc);
