@@ -566,6 +566,10 @@ function setLocPin(lid,px,py){
 
 // ═══ FILE SAVE/RESTORE ════════════════════════════════════════════
 function saveToFile(){
+  // Normalise relocate flag so undefined → true before serialising
+  Object.values(state.slocs||{}).forEach(s=>{
+    (s.storageSystems||[]).forEach(ss=>{ if(ss.relocate===undefined) ss.relocate=true; });
+  });
   const data=JSON.stringify(state,null,2);
   const blob=new Blob([data],{type:'application/json'});
   const url=URL.createObjectURL(blob);
@@ -587,6 +591,15 @@ function loadFromFile(){
       try{
         const d=JSON.parse(ev.target.result);
         Object.assign(state,d);
+        // Fix 1: normalise relocate flags (undefined → true)
+        // Fix 2: strip matTypes where every pct=0 (data entry bug)
+        Object.values(state.slocs||{}).forEach(s=>{
+          (s.storageSystems||[]).forEach(ss=>{
+            if(ss.relocate===undefined) ss.relocate=true;
+            const mts=ss.matTypes||[];
+            if(mts.length && mts.every(m=>!m.pct)) ss.matTypes=[];
+          });
+        });
         // Restore custom SLOCs and locs into runtime arrays
         if(state.customSlocDefs&&state.customSlocDefs.length){
           state.customSlocDefs.forEach(def=>{
@@ -967,7 +980,7 @@ function rZoneTab(def,s){
       +'<div style="width:10px;height:10px;border-radius:50%;background:'+col+';flex-shrink:0;margin-top:20px"></div>'
       +'<div style="flex:1;min-width:140px">'
         +'<label class="fl" style="margin-bottom:4px">Owner</label>'
-        +'<select style="margin-bottom:0;min-height:46px" onchange="updOw('+i+',\'name\',this.value)">'+optHtml+'</select>'
+        +'<select style="margin-bottom:0;min-height:46px" onchange="updOw('+i+',\'name\',this.value)"><option value="" disabled'+(o.name?'':' selected')+'>Select owner...</option>'+optHtml+'</select>'
       +'</div>'
       +'<div style="width:80px;flex-shrink:0">'
         +'<label class="fl" style="margin-bottom:4px">%</label>'
@@ -2824,6 +2837,11 @@ function exportXLSX(){
   if(typeof XLSX==='undefined'){showToast('Loading Excel library...',1500);setTimeout(exportXLSX,1500);return;}
   const wb=XLSX.utils.book_new();
   const hStyle={font:{bold:true}};
+  // Rate card — update with actual RFQ rates
+  const RATE_CONTAINER=8000;   // RM per 20ft container trip
+  const RATE_SPECIAL=12000;    // RM per IMO/hazmat container trip
+  const RATE_TRAILER=5500;     // RM per flatbed/trailer trip
+  const RATE_HEAVYLIFT=25000;  // RM per crane lift mobilisation
 
   function mkSheet(headers,rows){
     const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
@@ -2977,6 +2995,61 @@ function exportXLSX(){
     r7.reduce((a,r)=>a+(+r[6]||0),0),r7.reduce((a,r)=>a+(+r[7]||0),0),
     SLOC_DEF.reduce((a,d)=>a+(d.stock?.v||0),0)]);
   XLSX.utils.book_append_sheet(wb,mkSheet(h7,r7),'Transport Estimate');
+
+  // ── Sheet 7b: Transport Cost Breakdown ────────────────────────
+  const hTC=['SLOC','Description','Material Category','Transport Mode',
+    'SAP Items','SAP Qty','Stock Value (RM)',
+    'Pack Factor','Container Cap (m³)','Units Required (MB52)',
+    'Rate (RM/unit)','Est. Cost (RM)','Notes'];
+  const rTC=[];
+  const TRANSPORT_MODE_LABEL={container:'Container (20ft)',special_container:'Special / IMO Container',trailer:'Trailer / Flatbed',heavy_lift:'Heavy Lift / Crane'};
+  const RATE_BY_MODE={container:RATE_CONTAINER,special_container:RATE_SPECIAL,trailer:RATE_TRAILER,heavy_lift:RATE_HEAVYLIFT};
+  const CONTAINER_PRACTICAL=24.9;const TRAILER_PRACTICAL=61.5;
+  const CAP_BY_MODE={container:CONTAINER_PRACTICAL,special_container:CONTAINER_PRACTICAL,trailer:TRAILER_PRACTICAL,heavy_lift:5};
+  let tcTotCont=0,tcTotSpec=0,tcTotTrail=0,tcTotHeavy=0,tcTotCost=0,tcTotVal=0;
+  SLOC_DEF.forEach(d=>{
+    const td=TRANSPORT_DATA[d.code]||TRANSPORT_DATA[d.id];if(!td)return;
+    const s=state.slocs[d.id];const desc=stripE(s?.desc||d.desc);
+    (td.categories||[]).forEach(cat=>{
+      const mode=cat.transport||'container';
+      const rate=RATE_BY_MODE[mode]||RATE_CONTAINER;
+      const cap=CAP_BY_MODE[mode]||CONTAINER_PRACTICAL;
+      const units=cat.containers||cat.special_containers||cat.trailers||cat.lifts||0;
+      const cost=units*rate;
+      const pf=mode==='trailer'?'N/A':mode==='heavy_lift'?'N/A (5 m³/lift)':
+        mode==='special_container'?0.65:
+        ({BOXED_SPARES:0.75,CABLE_FLEX:0.70,INSTRUMENT:0.75,DRUM_IBC:0.65,WORKSHOP:0.60}[cat.cat]||0.75);
+      rTC.push([d.code,desc,cat.label,TRANSPORT_MODE_LABEL[mode]||mode,
+        cat.items||0,Math.round(cat.qty||0),Math.round(cat.value||0),
+        pf,cap,units,rate,cost,
+        'Source: SAP MB52 | Rate: placeholder — update with RFQ']);
+      if(mode==='container')tcTotCont+=units;
+      else if(mode==='special_container')tcTotSpec+=units;
+      else if(mode==='trailer')tcTotTrail+=units;
+      else if(mode==='heavy_lift')tcTotHeavy+=units;
+      tcTotCost+=cost;tcTotVal+=cat.value||0;
+    });
+  });
+  // Assumption rows
+  rTC.push([]);
+  rTC.push(['─── ASSUMPTIONS ───','','','','','','','','','','','','']);
+  rTC.push(['Container cap (gross)','33.2 m³','× 75% util = 24.9 m³ practical','','','','','','','','','','Source: PWA asb-survey.html ln 307']);
+  rTC.push(['Trailer cap (gross)','82.0 m³','× 75% util = 61.5 m³ practical','','','','','','','','','','Source: PWA asb-survey.html ln 308']);
+  rTC.push(['Unit counts','From SAP MB52','Embedded in PWA TRANSPORT_DATA constant','','','','','','','','','','Higher confidence than field estimates']);
+  rTC.push(['Stock value (RM '+Math.round(tcTotVal).toLocaleString()+')','NOT transport cost','SAP unrestricted stock value only','','','','','','','','','','Do not quote this as a logistics cost']);
+  rTC.push([]);
+  rTC.push(['GRAND TOTAL','','','',
+    '','','Math.round(tcTotVal)',
+    '','',
+    'Containers:'+tcTotCont+' | Spl:'+tcTotSpec+' | Trailers:'+tcTotTrail+' | Lifts:'+tcTotHeavy,
+    '─ update rates below ─',tcTotCost,
+    '⚠ Rates are PLACEHOLDER — replace with RFQ']);
+  // Fix the grand total row to use actual computed values
+  rTC[rTC.length-1]=['GRAND TOTAL','','','','','',Math.round(tcTotVal),'','',
+    'Containers:'+tcTotCont+' | Spl:'+tcTotSpec+' | Trailers:'+tcTotTrail+' | Lifts:'+tcTotHeavy,
+    '─ update rates ─',tcTotCost,
+    '⚠ Rates PLACEHOLDER: Ctr=RM'+RATE_CONTAINER.toLocaleString()+' Spl=RM'+RATE_SPECIAL.toLocaleString()+' Trailer=RM'+RATE_TRAILER.toLocaleString()+' HeavyLift=RM'+RATE_HEAVYLIFT.toLocaleString()];
+  XLSX.utils.book_append_sheet(wb,mkSheet(hTC,rTC),'Transport Cost Breakdown');
 
   // ── Sheet 8: Transport by Owner ────────────────────────────────
   const h8=['Owner','Containers','Special Ctrs','Trailers','Crane Lifts','Stock Value MYR'];
